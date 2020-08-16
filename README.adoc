@@ -1,0 +1,14 @@
+# Chilean Birds API
+
+This is an small API using the https://github.com/NinjasCL/chileanbirds-dataset[Chilean Birds Dataset].
+
+## Technologies Backend
+
+- PHP
+- https://github.com/joyofpw/docker[Docker]
+- https://processwire.com/[ProcessWire]
+- MariaDB
+
+## Technologies Frontend
+
+- React.js
