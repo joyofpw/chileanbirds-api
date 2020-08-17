@@ -1,0 +1,58 @@
+version: "3"
+
+# When docker turns off by force sometimes MySQL/MariaDB have problems
+# Initializing. Ensure deleting the file tc.log inside the
+# /database directory and restart.
+#
+# This docker-compose is for development only. For production use
+# another more secure configuration.
+
+services:
+  db:
+    image: mariadb
+    volumes:
+      - ./database/mariadb/data:/var/lib/mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: docker
+      MYSQL_DATABASE: docker
+      MYSQL_USER: docker
+      MYSQL_PASSWORD: docker
+    ports:
+      # machine port : docker port
+      - 3306:3306
+  pw:
+    depends_on:
+      - db
+    build:
+      context: .
+      dockerfile: ./docker/processwire/Dockerfile
+    restart: always
+    environment:
+      LC_ALL: en_US.UTF-8
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: docker
+      MYSQL_USER: docker
+      MYSQL_PASS: docker
+      STAGE: dev
+    links:
+      - db
+    volumes:
+      - ./src/backend:/var/www/html
+      - ./config/php/pw:/usr/local/etc/php
+    ports:
+      # machine port : docker port
+      - 8080:80
+  react:
+    depends_on:
+      - pw
+    build:
+      context: .
+      dockerfile: ./docker/react/Dockerfile
+    restart: always
+    volumes:
+      - ./src/frontend:/src
+    ports:
+      # machine port: docker port
+      - 80:80
