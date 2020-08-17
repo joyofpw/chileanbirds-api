@@ -39,3 +39,7 @@ c clean:
 	rm -rf $(DATABASE)
 	mkdir -p $(DATABASE)
 	touch $(DATABASE)/.gitkeep
+
+i install:
+	make react
+	make processwire 
