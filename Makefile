@@ -4,7 +4,7 @@ FRONTEND = ./src/frontend
 DATABASE = ./database
 CONFIG = ./config
 
-up dcu docker-up:
+r run up dcu docker-up:
 	docker-compose up -d
 
 # Install a brand new copy of ProcessWire
