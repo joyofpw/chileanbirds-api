@@ -1,6 +1,6 @@
 # Start ProcessWire:pwbphp (update 17)
 # block all PHP files (optional fallback if root .htaccess missing)
-<FilesMatch "\.(php|module|inc)$">
+<FilesMatch "\.(php|module|inc|sql)$">
   <IfModule mod_authz_core.c>
     Require all denied
   </IfModule>
