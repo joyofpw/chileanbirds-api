@@ -151,3 +151,64 @@ inside _ProcessWire_.
     } // /wire
 } // /document
 ```
+
+## Admin
+
+Uses the _ProcessWire_ admin:
+
+- *url*: http://localhost:8080/admin/
+- *user*: admin
+- *password*: ninjascl
+
+image:https://user-images.githubusercontent.com/292738/91102827-fa96d480-e637-11ea-98eb-db3c3f52f32e.png[]
+
+## API
+
+### GET: `/birds/`
+
+Will get all the available birds. (With only short info).
+
+### GET: `/birds/129-patagioenas-araucana/`
+
+Will get all the details of a specific bird.
+
+*Example*:
+
+```json
+{
+	"uid": "137-bubo-magellanicus",
+	"name": {
+		"spanish": "Tuc\u00faquere",
+		"english": "Magellanic Horned Owl",
+		"latin": "Bubo magellanicus"
+	},
+	"map": {
+		"image": "http:\/\/localhost:8080\/site\/assets\/files\/3116\/map.svg",
+		"title": "Entre la Regi\u00f3n de Arica y Parinacota y la Regi\u00f3n de Magallanes"
+	},
+	"iucn": {},
+	"habitat": "Esta especie se distribuye en Chile desde la Regi\u00f3n de Arica y Parinacota hasta la Regi\u00f3n de Magallanes. Se distribuye desde Canad\u00e1 y Alaska hasta el sur de Sudam\u00e9rica.Habita en bosques no muy densos, en quebradas cordilleranas, en laderas de cerro y estepas. Nidifica en altos \u00e1rboles, quebradas o entre arbustos en el suelo.",
+	"didyouknow": "Puede ser muy agresivo con otras aves nocturnas.Es bullicioso y emite un sonido caracter\u00edstico en el atardecer y durante la noche. Puede permanecer inm\u00f3vil durante largos per\u00edodos durante el d\u00eda.Existe una diversidad de nombres en mapuzugun para el Tuc\u00faquere, uno de ellos es Tukuu, descrito por Lorenzo Aillap\u00e1n. Asimismo, uno de sus nombres en yagan es\u00a0Yohutela, seg\u00fan la hablante Cristina Calder\u00f3n.",
+	"migration": false,
+	"dimorphism": false,
+	"size": "45 cm.",
+	"order": "Strigiformes",
+	"species": "Nativa",
+	"images": {
+		"main": "http:\/\/localhost:8080\/site\/assets\/files\/3115\/13082018100708tucuquere_camilo_maldonado_marin_web.jpg",
+		"gallery": [{
+			"url": "http:\/\/localhost:8080\/site\/assets\/files\/3115\/13082018100708tucuquere_camilo_maldonado_marin_web-1.jpg"
+		}]
+	},
+	"audio": {
+		"author": "Guillermo Egli",
+		"file": "http:\/\/localhost:8080\/site\/assets\/files\/3117\/09092018085212.wav"
+	},
+	"_links": {
+		"self": "http:\/\/localhost:8080\/birds\/137-bubo-magellanicus\/",
+		"parent": "http:\/\/localhost:8080\/birds\/"
+	},
+	"sort": 5
+}
+```
+
