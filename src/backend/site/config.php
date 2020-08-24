@@ -123,6 +123,6 @@ $config->httpHosts = array('localhost:8080', 'localhost');
  * Should be true for development sites and false for live/production sites. 
  * 
  */
-$config->debug = true;
+$config->debug = false;
 
 $config->prependTemplateFile = '_init.php';

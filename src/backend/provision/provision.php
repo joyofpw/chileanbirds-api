@@ -23,6 +23,8 @@ function createPages($jsons) {
   $birds = wire("pages")->get("template=birds");
   foreach($jsons as $birdJson) {
 
+    echo "Creating {$birdJson->uid}\n";
+    
     $path = __DIR__ . "/birds/{$birdJson->uid}";
 
     $bird = new Page();
@@ -55,17 +57,19 @@ function createPages($jsons) {
 
     $bird->map->add($map);
 
-    $iucn = new Page();
-    $iucn->template = "iucn-item";
-    $iucn->parent = $bird;
-    $iucn->save();
+    if(isset($birdJson->info->iucn->value)){
+      $iucn = new Page();
+      $iucn->template = "iucn-item";
+      $iucn->parent = $bird;
+      $iucn->save();
 
-    $iucn->title = $birdJson->info->iucn->value;
-    $iucn->body = $birdJson->iucn;
+      $iucn->title = $birdJson->info->iucn->value;
+      $iucn->body = $birdJson->iucn;
 
-    $iucn->save();
+      $iucn->save();
 
-    $bird->iucn->add($iucn);
+      $bird->iucn->add($iucn);
+    }
 
     $bird->dimorphism = $birdJson->info->dimorfism->value == "No" ? false : true;
     $bird->migration = $birdJson->info->migration->value == "No" ? false : true;
@@ -93,7 +97,9 @@ function createPages($jsons) {
 
     $bird->save();
 
-  break;
+    // Avoid Overloads
+    usleep(10);
+
   }
 }
 

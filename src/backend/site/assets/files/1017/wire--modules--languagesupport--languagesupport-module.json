@@ -1,0 +1,9 @@
+{
+    "file": "wire\/modules\/LanguageSupport\/LanguageSupport.module",
+    "textdomain": "wire--modules--languagesupport--languagesupport-module",
+    "translations": {
+        "0d61f8370cad1d412f80b84d143e1257": {
+            "text": "en_US.UTF-8"
+        }
+    }
+}

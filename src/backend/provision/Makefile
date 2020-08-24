@@ -12,5 +12,5 @@ i install:
 	mv chileanbirds-dataset/assets birds
 	rm -rf chileanbirds-dataset
 
-r run:
+p provision r run:
 	docker exec -it $(CONTAINER) php /var/www/html/provision/provision.php
