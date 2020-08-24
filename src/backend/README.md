@@ -52,13 +52,31 @@ inside _ProcessWire_.
         @templates {
             home: template().options({@once, @strong, @root}),
             notfound: template().options({@once, @childless}).description("Used in 404 errors"),
+
             birds: template().options({@strong}).family({
                     parents: ["home"],
                     children: ["birds-item"]
             }),
-            birds-item: template().options({@childless}).family({
-                parents: ["birds"]
-            })
+
+            birds-item: template().options().family({
+                parents: ["birds"],
+                children: ["iucn-item", "audio-item", "map-item"]
+            }),
+
+            iucn-item: template().fields({
+                        body: body().description("Stores the iucn description"),
+                        title: title().description("Stores the iucn value")
+            }).description("Used in the IUCN Field"),
+
+            audio-item: template().fields({
+                        recording,
+                        title
+            }).description("Used in the Audio Field"),
+
+            map-item: template().fields({
+                    image,
+                    title
+            }).description("Used in the Map Field")
         },
 
         @fields {
@@ -71,7 +89,7 @@ inside _ProcessWire_.
 
             href: url(),
 
-            file: files().max(1),
+            recording: files().max(1).mediatype([@wav, @mp3]),
 
             migration: checkbox(),
 
@@ -87,8 +105,6 @@ inside _ProcessWire_.
 
             images: images().mediatypes([@jpg, @png, @svg]),
 
-            value: text().options({@i18n}),
-
             habitat: textarea()
                     .description("Stores the habitat property")
                     .options({@i18n}),
@@ -99,25 +115,17 @@ inside _ProcessWire_.
 
             iucn: pagetable()
                     .max(1)
-                    .fields({
-                        body: body().description("Stores the iucn description"),
-                        value: value().description("Stores the iucn value")
-                    }),
+                    .templates([iucn-item])
+
 
             audio: pagetable()
                     .max(1)
-                    .fields({
-                        file,
-                        title
-                    }),
+                    .templates([audio-item])
+
 
             map: pagetable()
                 .max(1)
-                .fields({
-                    image,
-                    value
-                }),
-
+                .templates([map-item])
 
         },
 

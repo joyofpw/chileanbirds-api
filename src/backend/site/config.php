@@ -125,3 +125,4 @@ $config->httpHosts = array('localhost:8080', 'localhost');
  */
 $config->debug = true;
 
+$config->prependTemplateFile = '_init.php';
