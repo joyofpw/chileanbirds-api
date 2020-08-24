@@ -1,0 +1,172 @@
+<?php namespace ProcessWire;
+
+/**
+ * jQuery Tabs for ProcessWire
+ *
+ * ProcessWire 3.x, Copyright 2019 by Ryan Cramer
+ * https://processwire.com
+ * 
+ * @property int $rememberTabs
+ * 
+ * @method string render(array $items, array $options = array())
+ * 
+ */
+
+class JqueryWireTabs extends ModuleJS implements ConfigurableModule { 
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => __('jQuery Wire Tabs Plugin', __FILE__),
+			'summary' => __('Provides a jQuery plugin for generating tabs in ProcessWire.', __FILE__),
+			'version' => 110,
+			'permanent' => true, 
+		);
+	}
+
+	const rememberTabsNever = -1;
+	const rememberTabsSubmit = 0; 
+	const rememberTabsAlways = 1; 
+
+	// extending this class causes the class named JS and CSS files to automatically be loaded
+
+	public function init() {
+		
+		$defaults = array(
+			'ulClass' => 'WireTabs nav',
+			'ulAttrs' => '',
+			'liActiveClass' => '',
+			'requestID' => ((string) $this->wire('process')) . ((int) $this->wire('input')->get('id')), 
+			'aActiveClass' => 'on',
+			'rememberTabs' => (int) $this->rememberTabs,
+			'loadStyles' => true, 
+			'cookieName' => 'WireTabs',
+			'tooltipAttr' => array(
+				'class' => 'tooltip',
+				'title' => '{tip}',
+			), 
+		);
+
+		$config = $this->wire()->config;
+		$className = 'JqueryWireTabs';
+		$settings = $config->get($className); 
+		
+		if(is_array($settings)) {
+			$settings = array_merge($defaults, $settings);
+		} else {
+			$settings = $defaults;
+		}
+		
+		$this->loadStyles = $settings['loadStyles'];
+
+		/** @var JqueryCore $jQueryCore */
+		$jQueryCore = $this->wire()->modules->get('JqueryCore');
+		$jQueryCore->use('cookie');
+		
+		$config->js($className, $settings);
+		
+		parent::init();
+	}
+
+	public function getModuleConfigInputfields(array $data) {
+		$inputfields = $this->wire(new InputfieldWrapper());
+		$f = $this->wire('modules')->get('InputfieldRadios'); 
+		$f->attr('name', 'rememberTabs'); 
+		$f->label = $this->_('Remember tab positions between requests?');
+		$f->addOption(self::rememberTabsNever, $this->_('Never'));
+		$f->addOption(self::rememberTabsSubmit, $this->_('Only after form submit'));
+		$f->addOption(self::rememberTabsAlways, $this->_('Always'));
+		$f->attr('value', (isset($data['rememberTabs']) ? (int) $data['rememberTabs'] : self::rememberTabsSubmit)); 
+		$inputfields->add($f);
+		return $inputfields; 
+	}
+
+	/**
+	 * Pre-render a tab list (optional, as this is JS generated if not pre-rendered)
+	 * 
+	 * @param array $tabs array of (tabID => title)
+	 * @param array $options to modify behavior
+	 * @return string
+	 * 
+	 */
+	public function renderTabList(array $tabs, array $options = array()) {
+		$settings = $this->wire('config')->get('JqueryWireTabs');
+		$defaults = array(
+			'class' => isset($options['class']) ? $options['class'] : $settings['ulClass'],
+			'id' => '', 
+		);
+		$options = array_merge($defaults, $options); 
+		$attrs = "class='$options[class]'" . ($options['id'] ? " id='$options[id]'" : "");
+		if(!empty($settings['ulAttrs'])) $attrs .= " $settings[ulAttrs]";
+		$out = "<ul $attrs>";
+		
+		foreach($tabs as $tabID => $title) {
+			//$title = $this->wire('sanitizer')->entities1($title);
+			if(strpos($title, '<a ') !== false) {
+				$out .= "<li>$title</li>";
+			} else {
+				$out .= "<li><a href='#$tabID' id='_$tabID'>$title</a></li>";
+			}
+		}
+		
+		$out .= "</ul>";
+		return $out; 
+	}
+
+	/**
+	 * All-in-one tabs rendering in ProcessWire admin
+	 * 
+	 * Use this method to render tabs, tab containers, and initialization script in the return value. This method
+	 * requires no other initialization or setup and returns ready-to-output tabs. 
+	 * 
+	 * ~~~~~
+	 * echo $modules->get('JqueryWireTabs')->render([
+	 *   'Foo' => 'Foo tab content',
+	 *   'Bar' => 'Bar tab content',
+	 *   'Baz' => 'Baz tab content',
+	 * ]); 
+	 * ~~~~~
+	 * 
+	 * @param array $items Array of one or more [ 'Tab Title' => 'Tab Content' ]
+	 * @param array $options Options to modify default behavior (I recommend omitting this argument unless you really need it)
+	 * @return string Markup ready for output
+	 * @since 3.0.127
+	 * 
+	 */
+	public function ___render(array $items, array $options = array()) {
+	
+		static $n = 0;
+		$n++;
+		
+		$defaults = array(
+			'id' => "pw-wiretabs-$n", 
+			'linksID' => "pw-wiretabs-$n-links", 
+			'itemClass' => "pw-wiretabs-item", 
+		);
+		
+		$sanitizer = $this->wire('sanitizer');
+		$options = array_merge($defaults, $options);
+		$links = array();
+		$out = '';
+		$cnt = 0;
+		
+		foreach($items as $itemTitle => $itemContent) {
+			$cnt++;
+			$itemID = "pw-wiretabs-$n-$cnt";
+			$links[$itemID] = $sanitizer->entities1($itemTitle);
+			$out .= "<div id='$itemID' class='$options[itemClass]'>$itemContent</div>";
+		}
+		
+		$out = 
+			"<div id='$options[id]' class='pw-wiretabs'>" . 
+				$this->renderTabList($links, array('id' => $options['linksID'])) . 
+				$out . 
+			"</div>" . 
+			"<script>jQuery(document).ready(function(){" . 
+			"jQuery('#$options[id]').WireTabs({" . 
+				"id:'$options[linksID]'," . 
+				"items:jQuery('.$options[itemClass]')" . 
+			"})});</script>";
+		
+		return $out;
+	}
+}

@@ -1,0 +1,1025 @@
+<?php namespace ProcessWire;
+
+/**
+ * Comments Manager
+ *
+ * Manage all comments field data in chronological order. 
+ *
+ * ProcessWire 3.x 
+ * Copyright (C) 2019 by Ryan Cramer 
+ * This file licensed under Mozilla Public License v2.0 http://mozilla.org/MPL/2.0/
+ * 
+ * https://processwire.com
+ *
+ */
+
+class ProcessCommentsManager extends Process {
+
+	/**
+	 * Return information about this module (required)
+	 *
+	 */
+	public static function getModuleInfo() {
+		return array(
+			'title' => __('Comments', __FILE__), 
+			'summary' => __('Manage comments in your site outside of the page editor.', __FILE__),
+			'version' => 10, 
+			'author' => 'Ryan Cramer', 
+			'icon' => 'comments', 
+			'requires' => 'FieldtypeComments',
+			'searchable' => 'comments', 
+			'permission' => 'comments-manager', 
+			'permissions' => array(
+				'comments-manager' => 'Use the comments manager', 
+				),
+			'page' => array(
+				'name' => 'comments',
+				'parent' => 'setup', 
+				'title' => 'Comments', 
+				),
+			'nav' => array(
+				array(
+					'url' => '?go=approved',
+					'label' => __('Approved', __FILE__),
+					),
+				array(
+					'url' => '?go=pending',
+					'label' => __('Pending', __FILE__),
+					), 
+				array(
+					'url' => '?go=spam',
+					'label' => __('Spam', __FILE__),
+					),
+				array(
+					'url' => '?go=all',
+					'label' => __('All', __FILE__),
+					)
+				)
+			); 
+	}
+
+
+	/**
+	 * Statuses and names that a Comment can have
+	 *
+	 */
+	protected $statuses = array();
+
+	/**
+	 * Translated statuses
+	 *
+	 */
+	protected $statusTranslations = array();
+
+	/**
+	 * Number of comments to show per page
+	 *
+	 */
+	protected $limit = 10;
+
+	/**
+	 * Headline for masthead
+	 *
+	 */
+	protected $headline = '';
+
+	/**
+	 * Translated 'All' label
+	 * 
+	 * @var string
+	 * 
+	 */
+	protected $labelAll = 'All';
+
+	/**
+	 * Initialize the comments manager and define the statuses
+	 *
+	 */
+	public function init() {
+		$this->wire('modules')->get('FieldtypeComments');
+		parent::init();
+		$this->statuses = array(
+			Comment::statusFeatured => 'featured',
+			Comment::statusApproved => 'approved',
+			Comment::statusPending => 'pending',
+			Comment::statusSpam => 'spam',
+			Comment::statusDelete => 'delete'
+		);
+		$this->statusTranslations = array(
+			Comment::statusFeatured => $this->_('Featured'),
+			Comment::statusApproved => $this->_('Approved'),
+			Comment::statusPending => $this->_('Pending'),
+			Comment::statusSpam => $this->_('Spam'),
+			Comment::statusDelete => $this->_('Delete')
+		);
+		$this->labelAll = $this->_('All'); 
+	}
+
+	/**
+	 * Ask the user to select which comments field they want to manage
+ 	 *
+	 * Or, redirect to the comments field if there is only 1.
+	 * 
+	 * @return string
+	 *
+	 */
+	public function ___execute() {
+		$this->checkInstall();
+		// locate all the FieldtypeComments fields
+		$fields = array();
+		foreach($this->fields as $field) {
+			if($field->type instanceof FieldtypeComments) $fields[] = $field;
+		}
+
+		$count = count($fields);
+
+		if(!$count) {
+			$error = $this->_('There are no comments fields installed');
+			$this->error($error);
+			return "<p>$error</p>";
+		}
+		
+		$go = $this->wire('sanitizer')->pageName($this->wire('input')->get('go')); 
+
+		if($count == 1 || $go) {
+			$field = reset($fields);
+			$to = 'all';
+			if($go && in_array($go, $this->statuses)) $to = $go;
+			$this->wire('session')->redirect("./list/$field->name/$to/"); 
+			return '';
+		}
+
+		$out = "<h2>" . $this->_('Please select a comments field') . "</h2><ul>";
+		foreach($fields as $field) {
+			$out .= "<li><a href='./list/{$field->name}/pending/'>{$field->name}</a></li>";
+		}
+		$out .= "</ul>";
+
+		return $out;
+	}	
+
+	/**
+	 * Execute the comments list 
+	 * 
+	 * @return string
+	 *
+	 */
+	public function ___executeList() {
+
+		if(wireClassExists("CommentStars")) {
+			$config = $this->config;
+			$cssFile = $config->urls('FieldtypeComments') . 'comments.css';
+			$jsFile = $config->urls('FieldtypeComments') . 'comments.js';
+			$config->styles->add($cssFile);
+			$config->scripts->add($jsFile);
+			CommentStars::setDefault('star', wireIconMarkup('star')); 
+		}
+	
+		$session = $this->wire('session'); /** @var Session $session */
+		$input = $this->wire('input'); /** @var WireInput $input */
+		$sanitizer = $this->wire('sanitizer'); /** @var Sanitizer $sanitizer */
+		$page = $this->wire('page'); /** @var Page $page */
+
+		$commentID = (int) $input->get('id');
+		$name = $sanitizer->fieldName($input->urlSegment2); 
+		if(!$name) return $this->error($this->_('No comments field specified in URL')); 
+		$field = $this->fields->get($name); 
+		if(!$field || !$field->type instanceof FieldtypeComments) return $this->error($this->_('Unrecognized field')); 
+		$status = $input->urlSegment3;
+		
+		if(empty($status) || ($status != 'all' && !in_array($status, $this->statuses))) {
+			$redirectUrl = $page->url() . "list/$field->name/all/";
+			if($commentID) $redirectUrl .= "?id=$commentID";
+			$session->redirect($redirectUrl); 
+		}
+		
+		$statusNum = array_search($status, $this->statuses); 
+		$headline = $statusNum !== false ? $this->statusTranslations[$statusNum] : $status; 
+		if($headline === 'all') $headline = $this->labelAll;
+		$this->breadcrumb('../', $field->getLabel());
+
+		$limit = (int) $input->get('limit');
+		if($limit) {
+			$session->setFor($this, 'limit', $limit);
+			$session->redirect('./');
+		} else {
+			$limit = (int) $session->getFor($this, 'limit');
+			if(!$limit) $limit = (int) $this->limit;
+		}
+		$sort = $sanitizer->name($input->get('sort'));
+		if($sort) {
+			$session->setFor($this, 'sort', $sort);
+			$session->redirect('./');
+		} else {
+			$sort = $session->getFor($this, 'sort');
+			if(!$sort) $sort = '-created';
+		}
+	
+		$start = ($input->pageNum() - 1) * $limit;
+		$selector = "start=$start, limit=$limit, sort=$sort";
+		if($status != 'all') $selector .= ", status=$statusNum";
+
+		$filterOut = '';
+		$filterLabels = array(
+			'id' => $this->_('ID'),
+			'parent_id' => $this->_('Replies to'), 
+			'pages_id' => $this->_('Page'), 
+		);
+
+		$properties = array(
+			'cite', 
+			'email', 
+			'text', 
+			'ip', 
+			'id', 
+			'pages_id',
+			'parent_id', 
+			'stars'
+		);
+		
+		$q = $input->get('q');
+		if($q !== null) {
+			// query $q that contain a selector 
+			$q = trim($sanitizer->text($q, array('stripTags' => false)));
+			$op = Selectors::stringHasOperator($q, true);
+			if($op) {
+				list($property, $value) = explode($op, $q, 2); 
+				$property = $sanitizer->fieldName($property);
+				if(!in_array($property, $properties)) $property = '';
+			} else {
+				$property = 'text';
+				$op = strpos($q, ' ') ? '~=' : '%=';
+				$value = $q;
+			}
+			if($property && $value) {
+				$selector .= ", $property$op" . $sanitizer->selectorValue($value);
+				$input->whitelist('q', "$property$op$value"); 
+			}
+			$filterOut .= $sanitizer->entities(", $property$op$value"); 
+		} 
+		
+		foreach($properties as $key) {
+			$value = $input->get($key);
+			if(is_null($value)) continue;
+			if($key == 'id' || $key == 'pages_id' || $key == 'parent_id' || $key == 'stars') {
+				$value = (int) $value;
+			} else {
+				$value = trim($sanitizer->text($value));
+			}
+			$input->whitelist($key, $value);
+			$value = $sanitizer->selectorValue($value);
+			$selector .= ", $key=$value";
+			$filterLabel = isset($filterLabels[$key]) ? $filterLabels[$key] : ucfirst($key);
+			$filterOut .= $sanitizer->entities(", $filterLabel: $value");
+		}
+
+		/** @var FieldtypeComments $fieldtype */
+		$fieldtype = $field->type; 
+		$comments = $fieldtype->find($field, $selector); 
+		if($input->post('processComments')) {
+			$this->processComments($comments, $field);
+		}
+		if($filterOut) {
+			$this->breadcrumb('./', $headline); 
+			$headline = trim($filterOut, ", "); 
+		}
+		$this->headline = $headline; 
+		
+		return $this->renderComments($comments); 
+	}
+
+	/**
+	 * Process changes to posted comments
+	 * 
+	 * @param CommentArray $comments
+	 * @param Field $field
+	 *
+	 */
+	protected function processComments(CommentArray $comments, Field $field) {
+
+		$numDeleted = 0;
+		$numChanged = 0;
+		$isSuperuser = $this->user->isSuperuser();
+		$allowChangeParent = $isSuperuser && $field->get('depth') > 0;
+		$allowChangePage = $isSuperuser;
+		$commentField = $field instanceof CommentField ? $field : null;
+		
+		/** @var FieldtypeComments $fieldtype */
+		$fieldtype = $field->type;
+		
+		/** @var WireInput $input */
+		$input = $this->wire('input');
+
+		foreach($comments as $comment) {
+			/** @var Comment $comment */
+
+			$properties = array();
+
+			$text = $input->post("CommentText{$comment->id}"); 
+			if(!is_null($text) && $text != $comment->text) {
+				$comment->text = $text; // cleans it
+				$properties['text'] = $comment->text;
+				$numChanged++;
+			}
+
+			if($field->get('useVotes')) { 
+				foreach(array("upvotes", "downvotes") as $name) {
+					$votes = (int) $input->post("Comment" . ucfirst($name) . $comment->id); 
+					if($votes != $comment->$name) {
+						$comment->set($name, $votes); 
+						$properties[$name] = $comment->$name;
+						$numChanged++;
+					}
+				}
+			}
+			
+			if($field->get('useStars')) {
+				$stars = (int) $input->post("CommentStars$comment->id");
+				if($stars != $comment->stars) {
+					$comment->set('stars', $stars);
+					$properties['stars'] = $comment->stars;
+					$numChanged++;
+				}
+			}
+
+			$_status = $input->post("CommentStatus{$comment->id}"); 
+			$status = (int) $_status;
+			if($status === Comment::statusDelete && (!$commentField || $commentField->allowDeleteComment($comment))) {
+				if($fieldtype->deleteComment($comment->getPage(), $field, $comment)) {
+					$this->message(sprintf($this->_('Deleted comment #%d'), $comment->id)); 
+					$numDeleted++;
+				}
+				continue; 
+			}
+			
+			if($_status !== null && $status !== (int) $comment->status && array_key_exists($status, $this->statuses)) {
+				$comment->status = $status; 
+				$numChanged++;
+				$properties['status'] = $comment->status;
+			}
+			
+			$changePage = null;
+			if($allowChangePage) {
+				// check for change of Page ID
+				$pageID = (int) $input->post("CommentPage{$comment->id}"); 
+				if($pageID > 0 && "$pageID" !== "$comment->page") {
+					$page = $this->wire('pages')->get($pageID); 
+					$parentID = $comment->parent_id;
+					if($parentID) $comment->parent_id = 0; // temporarily set to 0 for page change
+					if(!$page->id) {
+						$this->error(
+							sprintf($this->_('Unable to find page: %d'), $pageID)
+						); 
+					} else if(!$page->hasField($field)) {
+						$this->error(
+							sprintf($this->_('Page %d does not have field: %s'), $pageID, "$field")
+						);
+					} else if($commentField && !$commentField->allowCommentPage($comment, $page, true)) {
+						// this one reports errors on its own
+					} else {
+						$this->message(
+							sprintf($this->_('Moved comment #%1$d from page %2$d to page %3$d'), $comment->id, $comment->page->id, $pageID)
+						);
+						$properties['pages_id'] = $pageID;
+						if($comment->parent_id) {
+							$comment->parent_id = 0;
+							$properties['parent_id'] = 0;
+						}
+						$changePage = $page;
+						$numChanged++;
+					}
+					if($changePage === null) {
+						// if page was not changed, restore back to original parent
+						if($parentID) $comment->parent_id = $parentID;
+					}
+				}
+			}
+		
+			$changeParentID = null;
+			if($allowChangeParent) {
+				// check for change of parent on threaded comment
+				$parentID = $input->post("CommentParent$comment->id");
+				if(strlen("$parentID") && ctype_digit("$parentID")) {
+					// allows for parent_id "0" but ignore blank
+					$parentID = (int) $parentID;
+					if($parentID != $comment->parent_id) {
+						if(!empty($properties['pages_id'])) {
+							// we will apply the parent change after the Page change has applied
+							$changeParentID = $parentID;
+						} else {
+							// parent ID has changed to another parent, or to no parent (0)
+							if($commentField && $commentField->allowCommentParent($comment, $parentID, true)) {
+								$comment->parent_id = $parentID;
+								$properties['parent_id'] = $parentID;
+								$numChanged++;
+							}
+						}
+					}
+				} else {
+					$parentID = null;
+				}
+			}
+
+			if(count($properties)) {
+				$fieldtype->updateComment($comment->getPage(), $field, $comment, $properties); 	
+				$this->message(sprintf($this->_('Updated comment #%d'), $comment->id) . " (" . implode(', ', array_keys($properties)) . ")"); 
+			}
+			
+			if($changeParentID !== null && $changePage !== null) {
+				// parent ID has changed at the same time that Page ID changed, so we apply parentID change afterwards
+				$comment->setPage($changePage);
+				if($commentField && $commentField->allowCommentParent($comment, $changeParentID, true)) {
+					$comment->parent_id = $changeParentID;
+					$fieldtype->updateComment($changePage, $field, $comment, array('parent_id' => $changeParentID));
+					$numChanged++;
+				}
+			}
+		}
+
+		if($numDeleted || $numChanged) {
+			$pageNum = $input->pageNum() > 1 ? 'page' . $input->pageNum() : '';
+			$this->session->redirect('./' . $pageNum . $this->getQueryString());
+		}
+	}
+
+	/**
+	 * Render the markup for a single comment
+	 * 
+	 * @param Comment $comment
+	 * @return string
+	 *
+	 */
+	protected function renderComment(Comment $comment) {
+
+		$sanitizer = $this->sanitizer;
+		$page = $comment->getPage();
+		$pageTitle = $sanitizer->entities1($page->get('title|name'));
+		$field = $comment->getField();
+		$adminTheme = $this->wire('adminTheme');
+		$isSuperuser = $this->user->isSuperuser();
+		$allowDepth = $field->depth > 0;
+		$allowDepthChange = $isSuperuser && $allowDepth;
+		$allowPageChange = $isSuperuser;
+		$parent = $comment->parent();
+		$numChildren = 0;
+		$text = $this->renderCommentText($comment);
+		$id = $comment->id;
+		
+		$icons = array(
+			'edit' => 'edit',
+			'upvote' => 'arrow-up',
+			'downvote' => 'arrow-down',
+			'changed' => 'dot-circle-o',
+			'reply' => 'angle-double-down',
+			'replies' => 'angle-double-right',
+		);
+		
+		$outs = array(
+			'status' => '',
+			'website' => '',
+			'stars' => '',
+			'votes' => '',
+			'page' => '',
+			'parent' => '',
+			'reply' => '',
+			'where' => '',
+			'children' => '',
+		);
+		
+		$classes = array(
+			'input' => 'CommentInput',
+			'textarea' => '',
+			'radio' => '',
+			'checkbox' => '',
+			'table' => ''
+		);
+		
+		$labels = array(
+			'edit' => $this->_('edit'),
+			'view' => $this->_('view'),
+			'page' => $this->_('Page'),
+			'date' => $this->_('When'),
+			'status' => $this->_('Status'),
+			'cite' => $this->_('Cite'),
+			'website' => $this->_('Web'),
+			'email' => $this->_('Mail'),
+			'none' => $this->_('None'),
+			'parent' => $this->_('Parent'),
+			'where' => $this->_('Where'),
+			'replyTo' => $this->_('Reply to %s'),
+			'stars' => $this->_('Stars'),
+			'votes' => $this->_('Votes'),
+			'commentId' => $this->_('Comment ID'), 
+		);
+
+		$values = array(
+			'cite' => $comment->cite, 
+			'email' => $comment->email,
+			'website' => $comment->website, 
+			'ip' => $comment->ip, 
+			'date' => wireDate($this->_('Y/m/d g:i a'), $comment->created), 
+			'dateRelative' => wireDate('relative', $comment->created),
+			'parent' => $parent && $parent->id ? $parent->id : '',
+			'parentPlaceholder' => $parent && $parent->id ? '' : $labels['none'],
+			'parentCite' => sprintf($labels['replyTo'], $labels['commentId']),
+			'stars' => $comment->stars ? $comment->stars : '',
+			'upvotes' => $comment->upvotes,
+			'downvotes' => $comment->downvotes, 
+			'page' => (int) "$comment->page",
+		);
+		
+		$urls = array(
+			'parent' => $parent ? "../all/?id=$parent->id" : '',
+			'children' => "../all/?parent_id=$id",
+			'siblings' => "../all/?pages_id=$page->id",
+			'pageView' => "$page->url#Comment$id",
+			'pageEdit' => $page->editUrl(),
+			'email' => "./?email=" . urlencode($values['email']), 
+			'cite' => "../all/?cite=" . urlencode($values['cite']),
+			'ip' => "../all/?ip=" . urlencode($values['ip']),
+		);
+		
+		$tooltips = array(
+			'parent' => $this->_('ID of the Comment that this one is replying to.'), 
+			'page' => $this->_('ID of the Page that this comment lives on.'), 
+			'viewAll' => $this->_('View all having value'), 
+			'edit' => $this->_('Edit value'), 
+			'pageFilter' => $this->_('Show only comments from page'), 
+		);
+		
+		foreach($values as $key => $value) {
+			$values[$key] = $sanitizer->entities($value);
+		}
+		
+		foreach($icons as $key => $value) {
+			$icons[$key] = wireIconMarkup($value);
+		}
+		
+		if($allowDepth) { 
+			$children = $comment->children();
+			$numChildren = count($children);
+		}
+		
+		if($adminTheme && $adminTheme instanceof AdminThemeFramework) {
+			$classes['input'] = trim("$classes[input] " . $adminTheme->getClass('input-small'));
+			$classes['textarea'] = $adminTheme->getClass('textarea');
+			$classes['radio'] = $adminTheme->getClass('input-radio');
+			$classes['checkbox'] = $adminTheme->getClass('input-checkbox');
+			$classes['table'] = $adminTheme->getClass('table');
+			// if(strpos($classes['input'], 'uk-input') !== false) $classes['input'] .= " uk-form-blank";
+		}
+		
+		foreach($this->statusTranslations as $status => $label) {
+			if($status == Comment::statusDelete && $numChildren) continue; 
+			$checked = $comment->status == $status ? "checked='checked' " : '';
+			$outs['status'] .= 
+				"<label class='CommentStatus'>" . 
+					"<input class='$classes[radio]' type='radio' name='CommentStatus$id' value='$status' $checked/>&nbsp;" . 
+					"<small>$label</small>" . 
+				"</label>&nbsp; ";
+		}
+
+		if($page->editable()) $text = 
+			"<div class='CommentTextEditable' id='CommentText$id' data-textarea-class='$classes[textarea]'>" . 
+				"<p>$text <a class='CommentTextEdit' href='#'>$icons[edit]&nbsp;$labels[edit]</a></p>" . 
+			"</div>";
+	
+		if($allowPageChange) $outs['page'] =
+			"<span class='detail ui-priority-secondary'>Page #</span>&nbsp;" .
+			"<input class='$classes[input] pw-tooltip' title='$tooltips[page]' name='CommentPage$id' value='$values[page]' /> ";
+
+		if($allowDepthChange) $outs['parent'] =
+			"<span class='detail ui-priority-secondary'>" . $this->_('Reply to #') . "</span>&nbsp;" .
+			"<input class='$classes[input] pw-tooltip' title='$tooltips[parent]' placeholder='$values[parentPlaceholder]' name='CommentParent$id' value='$values[parent]' />";
+			
+		if($outs['parent'] || $outs['page']) $outs['where'] =
+			"<tr>" . 
+				"<th>$labels[where]</th>" . 
+				"<td class='CommentWhere'>$outs[page]$outs[parent]</td>" . 
+			"</tr>";	
+		
+		if($values['website']) $outs['website'] = 
+			"<tr>" .
+				"<th>$labels[website]</th>" .
+				"<td><a target='_blank' href='$values[website]'>$values[website]</a></td>" .
+			"</tr>";
+		
+		if($field->useStars) $outs['stars'] =
+			"<tr>" .
+				"<th>$labels[stars]</th>" .
+				"<td class='CommentStars'>" .
+					"<input type='hidden' name='CommentStars$id' value='$values[stars]' />" .
+					$comment->renderStars(array('input' => true)) .
+				"</td>" .
+			"</tr>";
+		
+		if($field->useVotes) $outs['votes'] =
+			"<tr>" .
+				"<th>$labels[votes]</th>" .
+				"<td class='CommentVotes'>" .
+					"<label class='CommentUpvotes'>" .
+						"<span>$icons[upvote]</span>" .
+						"<input class='$classes[input]' title='upvotes' type='number' min='0' name='CommentUpvotes$id' value='$values[upvotes]' />" .
+					"</label> " .
+					"<label class='CommentDownvotes'>" .
+						"<span>$icons[downvote]</span>" .
+						"<input class='$classes[input]' title='downvotes' type='number' min='0' name='CommentDownvotes$id' value='$values[downvotes]' />" .
+					"</label> " .
+				"</td>" .
+			"</tr>";
+		
+		if($parent) {
+			$a = $sanitizer->entities($parent->cite) . " <a href='$urls[parent]'>$parent->id</a>";
+			$outs['reply'] = // displayed after table
+				"<p class='CommentReplyInfo detail'>" .
+					"$icons[reply] " .
+					sprintf($labels['replyTo'], $a) .
+				"</p>";
+		}
+
+		if($numChildren) $outs['children'] = // displayed after table
+			"<p class='CommentChildrenInfo detail'>" .
+				"<a href='$urls[children]'>" .
+					"$icons[replies] " .
+					sprintf($this->_n('%d reply', '%d replies', $numChildren), $numChildren) .
+				"</a>" .
+			"</p>";
+
+
+		$out =
+			"<div class='CommentItem ui-helper-clearfix CommentItemStatus$comment->status'>" . 
+				"<table class='CommentItemInfo $classes[table]' cellspacing='0'>" .
+					"<tr class='CommentTitle'>" . 
+						"<th>" .
+							"<label>" .
+								"<input class='CommentCheckbox $classes[checkbox]' type='checkbox' name='comment[]' value='$id' />&nbsp;" .
+								"<span class='CommentID'>$id</span>" . 
+							"</label>" . 
+						"</th>" . 
+						"<td>" . 
+							"<a href='$urls[siblings]' class='pw-tooltip' title='$tooltips[pageFilter]'><strong>$pageTitle</strong></a> " .
+							"<span class='detail'>&nbsp;" . 
+								"<a class='detail' href='$urls[pageView]'>$labels[view]</a>&nbsp;/&nbsp;" . 
+								"<a class='detail' href='$urls[pageEdit]'>$labels[edit]</a>" . 
+							"</span>" . 
+							"<span class='CommentChangedIcon'>$icons[changed]</span>" . 
+						"</td>" . 
+					"</tr>" .
+					"<tr class='CommentItemStatus'>" .
+						"<th>$labels[status]</th>" .
+						"<td class='CommentStatus'>$outs[status]</td>" .
+					"</tr>" .
+					"<tr>" . 
+						"<th>$labels[date]</th>" . 
+						"<td>$values[date] <span class='detail'>$values[dateRelative]</span></td>" . 
+					"</tr>" . 
+					"<tr>" .
+						"<th>$labels[cite]</th>" . 
+						"<td class='CommentCite'>" . 
+							"<a href='$urls[cite]' class='pw-tooltip' title='$tooltips[viewAll]'>$values[cite]</a> " . 
+							//"<input type='text' class='$classes[input]' name='CommentCite$id' value='$values[cite]' hidden /> " . // @todo
+							//"<a href='#' class='CommentToggleSiblings pw-tooltip' title='$tooltips[edit]'>$icons[edit]</a> " .
+							"<a class='detail pw-tooltip' title='$tooltips[viewAll]' href='$urls[ip]'>$values[ip]</a> " .
+						"</td>" . 
+					"</tr>" . 
+					"<tr>" . 
+						"<th>$labels[email]</th>" . 
+						"<td>" .
+							"<a href='$urls[email]' class='pw-tooltip' title='$tooltips[viewAll]'>$values[email]</a> " .
+							//"<input type='email' class='$classes[input]' name='CommentEmail$id' value='$values[email]' hidden /> " . // @todo
+							//"<a href='#' class='CommentToggleSiblings pw-tooltip' title='$tooltips[edit]'>$icons[edit]</a>" .
+						"</td>" . 
+					"</tr>" . 
+					$outs['website'] . 
+					$outs['stars'] . 
+					$outs['votes'] . 
+					$outs['where'] . 
+				"</table>" .
+				"<div class='CommentContent'>" .
+					"$outs[reply]" .
+					"<div class='CommentText'>$text</div>" .
+					"$outs[children]" .
+				"</div>" . 
+			"</div>";
+	
+		/*
+		$out = 	
+			"<div class='CommentItem ui-helper-clearfix CommentItemStatus{$comment->status}'>" . 
+				"$out " . 
+				"<div class='CommentContent'>" . 
+					"$outs[parent]" . 
+					"<div class='CommentText'>$text</div>" . 
+					"$outs[children]" . 
+				"</div>" . 
+			"</div>";
+		*/
+
+		$page->of(false);
+
+		return $out; 
+	}
+
+	/**
+	 * Prep comment text for output in editor
+	 * 
+	 * @param Comment $comment
+	 * @return string
+	 * 
+	 */
+	protected function renderCommentText(Comment $comment) {
+		$text = $this->sanitizer->entities($comment->get('text'));
+		$text = str_replace('\r', ' ', $text);
+		$text = preg_replace('/\r?(\n)/', '\r', $text);
+		$text = str_replace('\r\r', "<br />\n<br />\n", $text);
+		$text = str_replace('\r', "<br />\n", $text);
+		return $text;
+	}
+
+	/**
+	 * Render the comments list header
+	 * 
+	 * @param int $limit
+	 * @param bool $useVotes
+	 * @param bool $useStars
+	 * @return string
+	 * 
+	 */
+	protected function renderCommentsHeader($limit, $useVotes, $useStars) {
+		
+		$setStatusLabel = $this->_('Set status:');
+		$perPageLabel = $this->_('per page');
+		$adminTheme = $this->wire('adminTheme');
+		$selectClass = $adminTheme && $adminTheme instanceof AdminThemeFramework ? $adminTheme->getClass('select') : '';
+		$checkboxClass = $adminTheme && $adminTheme instanceof AdminThemeFramework ? $adminTheme->getClass('input-checkbox') : '';
+		
+		$pagerLimitOut = "
+			<select class='$selectClass' id='CommentLimitSelect'>
+				<option>10 $perPageLabel</option>
+				<option>25 $perPageLabel</option>
+				<option>50 $perPageLabel</option>
+				<option>100 $perPageLabel</option>
+			</select>
+		";
+		$pagerLimitOut = str_replace("<option>$limit ", "<option selected>$limit ", $pagerLimitOut);
+
+		$checkAllLabel = $this->_('Check/uncheck all');
+		$checkAll =
+			"<label title='$checkAllLabel'><input class='$checkboxClass' type='checkbox' id='CommentCheckAll' /> " .
+			"<span class='detail'></span></label>";
+
+		$noCheckedLabel = $this->_('There are no checked items');
+		$actionsOut =
+			"<select class='$selectClass' id='CommentActions' data-nochecked='$noCheckedLabel'>" .
+			"<option value=''>" . $this->_('Actions (checked items)') . "</option>";
+
+		foreach($this->statusTranslations as $status => $label) {
+			$actionsOut .= "<option value='$status'>$setStatusLabel $label</option>";
+		}
+
+		if($useVotes) {
+			$actionsOut .= "<option value='reset-upvotes'>" . $this->_('Reset: Upvotes') . "</option>";
+			$actionsOut .= "<option value='reset-downvotes'>" . $this->_('Reset: Downvotes') . "</option>";
+		}
+		$actionsOut .= "</select>";
+
+		$sorts = array(
+			'-created' => $this->_('Date (new–old)'),
+			'created' => $this->_('Date (old–new)'),
+		);
+		if($useStars) {
+			$sorts['-stars'] =  $this->_('Stars (high–low)');
+			$sorts['stars'] = $this->_('Stars (low–high)');
+		}
+		if($useVotes) {
+			$sorts['upvotes'] = $this->_('Upvotes');
+			$sorts['downvotes'] = $this->_('Downvotes');
+		}
+
+		$sortByOut = "<select class='$selectClass' id='CommentListSort'>";
+		$sortLabelPrefix = $this->_('Sort:');
+		foreach($sorts as $sortKey => $sortLabel) {
+			$sortByOut .= "<option value='$sortKey'>$sortLabelPrefix $sortLabel</option>";
+		}
+		$sortByOut .= "</select>";
+		$sort = $this->wire('session')->getFor($this, 'sort');
+		if(empty($sort)) $sort = "-created";
+		$sortByOut = str_replace("'$sort'", "'$sort' selected", $sortByOut);
+
+		return
+			"<p class='CommentCheckAll'>$checkAll</p>" .
+			"<p class='CommentActions'>$actionsOut</p>" .
+			"<p class='CommentSorts'>$sortByOut</p>" .
+			"<p class='CommentLimitSelect'>$pagerLimitOut</p>";
+	}
+
+	/**
+	 * Render the markup for a list of comments
+	 * 
+	 * @param CommentArray $comments
+	 * @return string
+	 *
+	 */
+	protected function renderComments(CommentArray $comments) {
+
+		$commentsBody = '';
+		$cnt = 0;
+		$status = $this->input->urlSegment3;
+		$start = $comments->getStart();
+		$limit = $comments->getLimit();
+		$total = $comments->getTotal();
+		$pageNumPrefix = $this->config->pageNumUrlPrefix; 
+		$pageNum = $this->wire('input')->pageNum; 
+		$queryString = $this->getQueryString();
+		$unsavedChangesLabel = $this->_('You have unsaved changes!');
+		$field = $comments->getField();
+
+		foreach($comments as $comment) {
+			/** @var Comment $comment */
+			if($status && $status != 'all' && $this->statuses[$comment->status] != $status) continue; 
+			$commentsBody .= $this->renderComment($comment); 
+			$cnt++;
+			if($cnt >= $limit) break;
+		}
+
+		/** @var MarkupPagerNav $pager */
+		$pager = $this->wire('modules')->get('MarkupPagerNav'); 
+		$pagerOut = $pager->render($comments, array(
+			'queryString' => $queryString,
+			'baseUrl' => "./"
+		));
+		/** @var JqueryWireTabs $wireTabs */
+		$wireTabs = $this->modules->get('JqueryWireTabs'); 
+		$tabs = array();
+		$class = $this->input->urlSegment3 === 'all' ? 'on' : '';
+		$tabs["tabStatusAll"] = "<a class='$class' href='../all/'>" . $this->labelAll . "</a>";
+
+		foreach($this->statuses as $status => $name) {
+			if($status == Comment::statusDelete) continue;
+			$class = $this->input->urlSegment3 === $name ? 'on' : '';
+			$label = $this->statusTranslations[$status];
+			if($label === $name) $label = ucfirst($label);
+    		$tabs["tabStatus$status"] = "<a class='$class' href='../$name/'>$label</a>";
+		}
+
+		$tabsOut = $wireTabs->renderTabList($tabs);
+		$this->headline .= ' (' . ($start+1) . "–" . ($start + $cnt) . " " . sprintf($this->_('of %d'), $total) . ')';
+		$this->headline($this->headline);
+
+		if($cnt) { 
+			/** @var InputfieldSubmit $button */
+			$button = $this->modules->get('InputfieldSubmit');
+			$button->attr('name', 'processComments');
+			$button->showInHeader();
+			$button = $button->render();
+		} else $button = '';
+
+		if($this->input->pageNum > 1) {
+			$queryString = "./$pageNumPrefix$pageNum$queryString";
+		}
+
+		if(!count($comments)) {
+			return
+				"<form>" . 
+					$tabsOut . 
+					"<h2>" . $this->_('None to display') . "</h2>" . 
+				"</form>";
+		}
+		
+		$commentsHeader = $this->renderCommentsHeader($limit, $field->get('useVotes'), $field->get('useStars'));
+		
+		return
+			"<form id='CommentListForm' action='$queryString' method='post' data-unsaved='$unsavedChangesLabel'>" . 
+				$tabsOut . 
+				"<div id='CommentListHeader' class='ui-helper-clearfix'>" . 	
+					$pagerOut . 
+					$commentsHeader . 
+				"</div>" . 
+				"<div class='CommentItems ui-helper-clearfix'>" . 
+					$commentsBody . 
+				"</div>" . 
+				$pagerOut . 
+				$button . 
+			"</form>"; 
+	}
+	
+	protected function getQueryString() {
+		$queryString = '';
+		foreach($this->input->whitelist as $key => $value) {
+			$queryString .= $this->wire('sanitizer')->entities($key) . "=" . $this->wire('sanitizer')->entities($value) . "&";
+		}
+		$queryString = trim($queryString, '&');
+		if($queryString) $queryString = "?$queryString";
+		return $queryString;
+	}
+
+	protected function checkInstall() {
+		if($this->wire('modules')->isInstalled('ProcessLatestComments')) {
+			$this->warning('Please uninstall the ProcessLatestComments module (this module replaces it).');
+		}
+	}
+
+	public function ___install() {
+		$this->checkInstall();
+		return parent::___install();
+	}
+	
+	/**
+	 * Search for items containing $text and return an array representation of them
+	 *
+	 * Implementation for SearchableModule interface
+	 *
+	 * @param string $text Text to search for
+	 * @param array $options Options to modify behavior:
+	 *  - `edit` (bool): True if any 'url' returned should be to edit items rather than view them
+	 *  - `multilang` (bool): If true, search all languages rather than just current (default=true).
+	 *  - `start` (int): Start index (0-based), if pagination active (default=0).
+	 *  - `limit` (int): Limit to this many items, if pagination active (default=0, disabled).
+	 * @return array
+	 *
+	 */
+	public function search($text, array $options = array()) {
+
+		/** @var Languages $languages */
+		$page = $this->getProcessPage();
+		$fields = array();
+		foreach($this->wire('fields') as $field) {
+			if($field->type instanceof FieldtypeComments) $fields[$field->name] = $field;
+		}
+
+		$result = array(
+			'title' => $page->id ? (string) $page->title : $this->className(),
+			'total' => 0,
+			'url' => '',
+			'items' => array(),
+			'properties' => array(
+				'text',
+				'cite',
+				'email',
+				'status',
+				'created',
+				'website',
+				'ip',
+				'user_agent',
+				'upvotes',
+				'downvotes',
+				'stars'
+			)
+		);
+		
+		if($options['help']) return $result;
+		
+		$operator = empty($options['operator']) ? '%=' : $options['operator'];
+		$value = $this->wire('sanitizer')->selectorValue($text); 	
+		$summaryLength = $options['verbose'] ? 1024 : 200;
+		
+		if(!empty($options['property'])) {
+			$selector = "$options[property]$operator$value";
+			$q = "$options[property]$operator$text"; 
+		} else {
+			$selector = "text$operator$value";
+			$q = "text{$operator}$text"; 
+		}
+		
+		if(!empty($options['limit'])) $selector .= ", limit=$options[limit]";
+		if(!empty($options['start'])) $selector .= ", start=$options[start]";
+	
+		foreach($fields as $fieldName => $field) {
+			/** @var CommentArray $comments */
+			$comments = $field->type->find($selector); 
+			if(!count($comments)) continue;
+			$result['total'] += $comments->getTotal();
+			$url = $page->url() . "list/$field->name/all/";
+			if(count($fields) == 1) $result['url'] = $url . "?q=" . urlencode($q); 
+			foreach($comments as $comment) {
+				/** @var Comment $comment */
+				$commentPage = $comment->getPage();
+				$editUrl = $url . "?id=$comment->id";
+				$item = array(
+					'id' => $comment->id,
+					'name' => $comment->cite,
+					'title' => $comment->cite, 
+					'subtitle' => $commentPage && $commentPage->id ? (string) $commentPage->get('title|name') : '', 
+					'summary' => $this->wire('sanitizer')->truncate($comment->text, $summaryLength), 
+					'url' => empty($options['edit']) ? $comment->url() : $editUrl
+				);
+				$result['items'][] = $item;
+			}
+		}
+
+		/* // for debugging:
+		$result['items'][] = array(
+			'id' => 0,
+			'name' => '',
+			'title' => $selector,
+			'subtitle' => '',
+			'summary' => '',
+			'url' => '#'
+		);
+		*/
+
+		return $result;
+	}
+
+
+}
+

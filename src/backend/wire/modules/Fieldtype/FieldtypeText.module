@@ -1,0 +1,247 @@
+<?php namespace ProcessWire;
+
+/**
+ * ProcessWire Text Fieldtype
+ *
+ * Basic Field that stores text, typically a single line. 
+ *
+ * For documentation about the fields used in this class, please see:  
+ * /wire/core/Fieldtype.php
+ * 
+ * ProcessWire 3.x, Copyright 2019 by Ryan Cramer
+ * https://processwire.com
+ *
+ *
+ */
+
+class FieldtypeText extends Fieldtype {
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => 'Text',
+			'version' => 101,
+			'summary' => 'Field that stores a single line of text',
+			'permanent' => true, 
+		);
+	}
+
+	/**
+	 * Are text formatters allowed for this Fieldtype?
+	 *
+	 * Descending classes can override with the allowTextFormatters(false) method. 
+	 *
+	 */
+	private $allowTextFormatters = true; 
+
+	/**
+	 * Provides a way for descending classes to disable text formatters where they aren't applicable
+	 *
+	 * @param bool|null $allow True to allow them, false to disallow or NULL not to do anything
+	 * @return bool Current state of $allowTextFormatters
+	 *
+	 */
+	protected function allowTextFormatters($allow = null) {
+		if(!is_null($allow)) $this->allowTextFormatters = $allow ? true : false;
+		return $this->allowTextFormatters; 
+	}
+
+	/**
+	 * Return all Fieldtypes derived from FieldtypeText, which we will consider compatible
+	 * 
+	 * @param Field $field
+	 * @return Fieldtypes
+	 *
+	 */
+	public function ___getCompatibleFieldtypes(Field $field) {
+		$fieldtypes = $this->wire(new Fieldtypes());
+		foreach($this->wire('fieldtypes') as $fieldtype) {
+			if($fieldtype instanceof FieldtypeText) {
+				$fieldtypes->add($fieldtype);
+			} else {
+				$className = $fieldtype->className();
+				if($className == 'FieldtypeSelector') $fieldtypes->add($fieldtype);
+			}
+		}
+		return $fieldtypes; 
+	}
+
+	/**
+	 * Sanitize value for storage
+	 * 
+	 * @param Page $page
+	 * @param Field $field
+	 * @param string $value
+	 * @return string
+	 *
+	 */
+	public function sanitizeValue(Page $page, Field $field, $value) {
+		return $value; 
+	}
+
+	/**
+	 * Format value for output
+	 * 
+	 * @param Page $page
+	 * @param Field $field
+	 * @param string $value
+	 * @return string
+	 *
+	 */
+	public function ___formatValue(Page $page, Field $field, $value) {
+
+		$value = (string) $value; 
+		$textformatters = $field->get('textformatters');
+
+		if($this->allowTextFormatters() && is_array($textformatters)) {
+			foreach($textformatters as $name) {
+				if(!$textformatter = $this->wire('modules')->get($name)) continue; 
+				$textformatter->formatValue($page, $field, $value); 
+			}
+		}
+
+		return $value; 
+	}
+
+	/**
+	 * Return whether the given value is considered empty or not
+	 *
+	 * This an be anything that might be present in a selector value and thus is
+	 * typically a string. However, it may be used outside of that purpose so you
+	 * shouldn't count on it being a string.
+	 *
+	 * @param Field $field
+	 * @param mixed $value
+	 * @return bool
+	 *
+	 */
+	public function isEmptyValue(Field $field, $value) {
+		return !strlen($value); 
+	}
+
+	/**
+	 * Return the associated Inputfield
+	 * 
+	 * @param Page $page
+	 * @param Field $field
+	 * @return Inputfield
+	 *
+	 */
+	public function getInputfield(Page $page, Field $field) {
+		$inputField = $this->wire('modules')->get('InputfieldText'); 
+		return $inputField; 
+	}
+
+	/**
+	 * Update a query to match the text with a fulltext index
+	 * 
+	 * @param PageFinderDatabaseQuerySelect $query
+	 * @param string $table
+	 * @param string $subfield
+	 * @param string $operator
+	 * @param int|string $value
+	 * @return DatabaseQuerySelect
+	 *
+	 */
+	public function getMatchQuery($query, $table, $subfield, $operator, $value) {
+		$ft = new DatabaseQuerySelectFulltext($query); 
+		$ft->match($table, $subfield, $operator, $value); 
+		return $query; 
+	}
+
+	/**
+	 * Return the database schema in specified format
+	 * 
+	 * @param Field $field
+	 * @return array
+	 *
+	 */
+	public function getDatabaseSchema(Field $field) {
+		$schema = parent::getDatabaseSchema($field);
+		$len = $this->wire('database')->getMaxIndexLength();
+		$schema['data'] = 'text NOT NULL';
+		$schema['keys']['data_exact'] = "KEY `data_exact` (`data`($len))"; 
+		$schema['keys']['data'] = 'FULLTEXT KEY `data` (`data`)'; 
+		return $schema;
+	}
+
+	/**
+	 * Return the fields required to configure an instance of FieldtypeText
+	 * 
+	 * @param Field $field
+	 * @return InputfieldWrapper
+	 *
+	 */
+	public function ___getConfigInputfields(Field $field) {
+		$inputfields = parent::___getConfigInputfields($field);
+		if($this->allowTextFormatters()) { 
+			/** @var Modules $modules */
+			$modules = $this->wire('modules');
+			$textformatters = $modules->findByPrefix('Textformatter'); 
+			
+			if(count($textformatters)) {
+				/** @var InputfieldAsmSelect $f */
+				$f = $this->modules->get('InputfieldAsmSelect'); 
+				$f->attr('name', 'textformatters'); 
+				$f->label = $this->_('Text Formatters');
+
+				foreach($textformatters as $moduleName) {
+					$info = $modules->getModuleInfo($moduleName);
+					$f->addOption($moduleName, "$info[title]"); 
+				}
+
+				$value = $field->get('textformatters');
+				if(!is_array($value)) $value = array();
+				$f->val($value);
+				$f->description = $this->_('If you want to apply any automatic formatting to the field when it is prepared for output, select one or more text formatters above. If you select more than one, drag them into the order they should be applied.'); 
+				$f->notes = $this->_('For plain text fields that will not contain HTML or markup, we recommend selecting the **HTML Entity Encoder** option above.');
+
+				$inputfields->add($f);
+			}
+		}
+
+		return $inputfields; 
+	}
+
+	/**
+	 * Convert an array of exported data to a format that will be understood internally
+	 *
+	 * @param Field $field
+	 * @param array $data
+	 * @return array Data as given and modified as needed. Also included is $data[errors], an associative array
+	 *	indexed by property name containing errors that occurred during import of config data.
+	 *
+	 */
+	public function ___importConfigData(Field $field, array $data) {
+		if(isset($data['textformatters']) && is_array($data['textformatters'])) {
+			$errors = array();
+			foreach($data['textformatters'] as $className) {
+				if(!$this->wire('modules')->isInstalled($className)) {
+					$errors[] = "Requires module '$className' to be installed";
+				}
+			}
+			if(count($errors)) $data['errors']['textformatters'] = implode(" \n", $errors); 
+		}
+		return $data;
+	}
+	
+	/**
+	 * Import value
+	 *
+	 * @param Page $page
+	 * @param Field $field
+	 * @param array|int|object|string $value
+	 * @param array $options
+	 * @return array|string
+	 *
+	 */
+	public function ___importValue(Page $page, Field $field, $value, array $options = array()) {
+		if(is_array($value) && isset($value['default']) && !$this->wire('languages')) {
+			// multi-language value to non-multi-language site, use only default language
+			$value = $value['default'];
+		}
+		$value = parent::___importValue($page, $field, $value, $options);
+		return $value;
+	}
+
+}
+

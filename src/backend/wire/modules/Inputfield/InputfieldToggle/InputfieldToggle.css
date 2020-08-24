@@ -1,0 +1,49 @@
+.InputfieldToggleGroup {
+	display: flex;
+	float: left;
+}
+
+.InputfieldToggleGroup input {
+	position: absolute !important;
+	clip: rect(0, 0, 0, 0);
+	height: 1px;
+	width: 1px;
+	border: 0;
+	overflow: hidden;
+}
+
+.InputfieldToggleGroup label {
+	background-color: #eee;
+	color: rgba(0, 0, 0, 0.6);
+	line-height: 1;
+	text-align: center;
+	padding: 8px 16px;
+	margin-right: -1px;
+	margin-left: 0;
+	border: 1px solid rgba(0,0,0,0.1);
+	font-size: 16px; 
+}
+
+.InputfieldToggleGroup label:hover {
+	cursor: pointer;
+}
+
+.InputfieldToggleGroup label.InputfieldToggleCurrent, /* JS */
+.InputfieldToggleGroup input:checked + label { /* non-JS */
+	background-color: #999;
+	color: #fff;
+}
+
+.InputfieldToggleGroup label:first-of-type {
+	border-radius: 4px 0 0 4px;
+}
+
+.InputfieldToggleGroup label:last-of-type {
+	border-radius: 0 4px 4px 0;
+}
+
+.InputfieldToggleHelper {
+	display: none !important;
+}
+
+

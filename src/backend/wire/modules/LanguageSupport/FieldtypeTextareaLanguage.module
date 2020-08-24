@@ -1,0 +1,124 @@
+<?php namespace ProcessWire;
+
+require_once(dirname(__FILE__) . '/FieldtypeLanguageInterface.php'); 
+
+/**
+ * Multi-language capable textarea field
+ *
+ * ProcessWire 3.x, Copyright 2016 by Ryan Cramer
+ * https://processwire.com
+ *
+ *
+ */
+
+class FieldtypeTextareaLanguage extends FieldtypeTextarea implements FieldtypeLanguageInterface {
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => 'Textarea (Multi-language)',
+			'version' => 100,
+			'summary' => 'Field that stores a multiple lines of text in multiple languages',
+			'requires' => array('LanguageSupportFields')
+			);
+	}
+
+	/**
+	 * Sanitize value for storage
+	 * 
+	 * @param Page $page
+	 * @param Field $field
+	 * @param LanguagesPageFieldValue|string|array $value
+	 * @return LanguagesPageFieldValue
+	 *
+	 */
+	public function sanitizeValue(Page $page, Field $field, $value) {
+		if(is_object($value) && $value instanceof LanguagesPageFieldValue) {
+			// great, already what we wanted
+		} else {
+			// convert it to a LanguagesPageFieldValue
+			if(is_array($value)) $value = reset($value); 
+			$str = (string) $value; 
+			$value = $page->data($field->name); 
+			if(!is_object($value)) { // string, array or null
+				$value = new LanguagesPageFieldValue($page, $field, $value);
+			}
+			$value->setLanguageValue($this->wire('user')->language->id, $str); 
+		}
+		return $value; 
+	}
+
+	/**
+	 * Return the database schema in specified format
+	 * 
+	 * @param Field $field
+	 * @return array
+	 *
+	 */
+	public function getDatabaseSchema(Field $field) {
+		$schema = parent::getDatabaseSchema($field);
+		$languageSupport = $this->wire('modules')->get('LanguageSupport'); 
+		foreach($languageSupport->otherLanguagePageIDs as $languageID) {
+			// $schema['data' . $languageID] = $schema['data'];
+			$schema['data' . $languageID] = 'mediumtext';
+			$schema['keys']["data{$languageID}"] = "FULLTEXT KEY `data{$languageID}` (`data{$languageID}`)";
+		}
+		return $schema;
+	}
+
+	/**
+	 * Format value for output, basically typcasting to a string and sending to textformatters from FieldtypeTextarea
+	 * 
+	 * @param Page $page
+	 * @param Field $field
+	 * @param string|LanguagesPageFieldValue $value
+	 * @return string
+	 *
+	 */
+	public function formatValue(Page $page, Field $field, $value) {
+		return parent::formatValue($page, $field, (string) $value); 
+	}
+
+	/**
+	 * Given a value, return an portable version of it as array
+	 *
+	 * @param Page $page
+	 * @param Field $field
+	 * @param string|int|float|array|object|null $value
+	 * @param array $options Optional settings to shape the exported value, if needed.
+	 * @return string|float|int|array
+	 *
+	 */
+	public function ___exportValue(Page $page, Field $field, $value, array $options = array()) {
+		// in this method we are delegating the exportValue() to FieldtypeTextLanguage::exportValue
+		// but we want to make sure it has textarea sleepValue, so we pass sleepValue in the $options
+		if(!isset($options['sleepValue'])) $options['sleepValue'] = $this->sleepValue($page, $field, $value);
+		$exportValue = $this->wire('fieldtypes')->get('FieldtypeTextLanguage')->___exportValue($page, $field, $value, $options);
+		return $exportValue; 
+	}
+
+	/**
+	 * Given an export value, import it to a LanguagesPageFieldValue 
+	 * 
+	 * @param Page $page
+	 * @param Field $field
+	 * @param array $value
+	 * @param array $options
+	 * @return LanguagesPageFieldValue
+	 * 
+	 */
+	public function ___importValue(Page $page, Field $field, $value, array $options = array()) {
+		/** @var Languages $languages */
+		$languages = $this->wire('languages');
+	
+		/** @var LanguagesPageFieldValue $importValue */
+		$importValue = $this->wire('fieldtypes')->get('FieldtypeTextLanguage')->___importValue($page, $field, $value, $options);
+		
+		foreach($languages as $language) {
+			$languageValue = $importValue->getLanguageValue($language->id); 
+			$languageValue = parent::___importValue($page, $field, $languageValue, $options); 
+			$importValue->setLanguageValue($language->id, $languageValue);
+		}
+		
+		return $importValue; 
+	}
+}

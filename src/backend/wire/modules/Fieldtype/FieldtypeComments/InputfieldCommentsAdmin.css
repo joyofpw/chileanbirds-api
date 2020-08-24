@@ -1,0 +1,41 @@
+.InputfieldCommentsAdmin input[type=text],
+.InputfieldCommentsAdmin input[type=email],
+.InputfieldCommentsAdmin input[type=url],
+.InputfieldCommentsAdmin select,
+.InputfieldCommentsAdmin textarea {
+	width: 100%;
+}
+
+.InputfieldCommentsAdmin .CommentsAdminItemText {
+	margin-bottom: 0;
+}
+
+.InputfieldCommentsAdmin .InputfieldContent > .ui-helper-clearfix > p {
+	float: left; 
+	width: 23%; 
+	margin-top: 0;
+	margin-right: 2%; 
+}
+
+.InputfieldCommentsAdmin .InputfieldContent p label,
+.InputfieldCommentsAdmin .InputfieldContent p input {
+	display: block;
+}
+
+.InputfieldCommentsAdmin:not(.InputfieldIsOffset) .Inputfields > .Inputfield {
+	margin: 3px 0;
+}
+
+@media screen and (max-width: 768px) {
+	.InputfieldCommentsAdmin .InputfieldContent > .ui-helper-clearfix > p {
+		width: 48%;
+	}
+}
+
+@media screen and (max-width: 500px) {
+	.InputfieldCommentsAdmin .InputfieldContent > .ui-helper-clearfix > p {
+		width: 100%;
+		margin-right: 0;
+		float: none;
+	}
+}

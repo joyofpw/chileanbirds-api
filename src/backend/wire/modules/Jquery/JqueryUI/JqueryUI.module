@@ -1,0 +1,67 @@
+<?php namespace ProcessWire;
+
+class JqueryUI extends ModuleJS { 
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => 'jQuery UI',
+			'version' => 196,
+			'summary' => 'jQuery UI as required by ProcessWire and plugins',
+			'href' => 'http://ui.jquery.com', 
+			'permanent' => true, 
+		);
+	}
+	
+	public function wired() {
+		$debug = $this->wire('config')->debug;
+		$this->addComponents(array(
+			'modal' => $debug ? 'modal.js' : 'modal.min.js',
+			'panel' => $debug ? 'panel.js' : 'panel.min.js', 
+			'touch' => 'touch.js' 
+		));
+		parent::wired();
+	}
+	
+	public function init() {
+		parent::init();
+		if($this->wire('session')->touch) $this->use('touch'); 
+	}
+
+	public function ___use($name) {
+		if($name == 'panel') {
+			// also add stylesheet when panel component requested
+			$this->config->styles->add($this->config->urls('JqueryUI') . "panel.css");
+		} else if($name == 'vex') {
+			// custom loader for vex
+			static $vexLoaded = false;
+			if($vexLoaded) return $this;
+			$vexLoaded = true;
+			$config = $this->wire('config');
+			$url = $config->urls('JqueryUI') . 'vex/';
+			$config->styles->add($url . 'css/vex.css');
+			$config->styles->add($url . 'styles/vex-theme-default.css');
+			$config->scripts->add($url . 'scripts/vex.combined.min.js');
+			$adminTheme = $this->wire('adminTheme');
+			if($adminTheme) $adminTheme->addExtraMarkup('head',
+				"<script>" .
+				"vex.defaultOptions.className='vex-theme-default';" .
+				"vex.dialog.buttons.YES.text='" . __('Ok', 'common') . "';" . // Yes/Ok button text for Confirm dialog
+				"vex.dialog.buttons.NO.text='" . __('Cancel', 'common') . "';" . // No/Cancel button text for Confirm dialog
+				"</script>"
+			);
+			return $this;
+		} else if($name == 'selectize') {
+			static $selectizeLoaded = false;	
+			if($selectizeLoaded) return $this;
+			$selectizeLoaded = true;
+			$config = $this->wire('config');
+			$url = $config->urls('JqueryUI') . 'selectize/';
+			$config->styles->add($url . 'css/selectize.css');
+			$config->scripts->add($url . 'js/standalone/selectize.' . ($config->debug ? 'js' : 'min.js')); 
+			return $this;	
+		}
+		return parent::___use($name);
+	}
+
+
+}

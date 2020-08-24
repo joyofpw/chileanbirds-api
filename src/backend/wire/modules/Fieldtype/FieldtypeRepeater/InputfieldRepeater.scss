@@ -1,0 +1,191 @@
+.Inputfields .InputfieldRepeater {
+	
+	& > .InputfieldContent > ul.Inputfields { 
+		margin-bottom: 1em;
+		&:last-child {
+			margin-bottom: 0;
+		}
+	}
+	
+	.InputfieldRepeaterItem  > .InputfieldHeader {
+		line-height: 1em;
+		padding: 0.5em 0 0.5em 0.4em;
+		white-space: nowrap;
+		overflow: hidden;
+		position: relative;
+		
+		.InputfieldRepeaterItemLabel,
+		.InputfieldRepeaterItemControls {
+			display: none;
+		}
+		
+		&.InputfieldRepeaterHeaderInit {
+			.InputfieldRepeaterItemLabel {
+				display: inline-block;
+				padding-left: 0.25em;
+			}
+			.InputfieldRepeaterItemControls {
+				display: block;
+				padding-right: 0.5em;
+				padding-left: 0.5em;
+				margin-top: 0.5em;
+				position: absolute;
+				top: 0;
+				right: 0;
+				z-index: 1;
+				display: block;
+				white-space: nowrap;
+				height: 100%;
+
+				
+				.InputfieldRepeaterSettingsToggle,
+				.InputfieldRepeaterClone,
+				.InputfieldRepeaterToggle,
+				.InputfieldRepeaterTrash,
+				.toggle-icon {
+					cursor: pointer;
+					float: right;
+				}
+				.InputfieldRepeaterTrash {
+					padding-right: 3px;
+				}
+				.InputfieldRepeaterToggle {
+					margin-right: 1em;
+				}
+				.InputfieldRepeaterClone {
+					margin-right: 1em;
+				}
+				.InputfieldRepeaterSettingsToggle {
+					margin-right: 1em;
+				}
+				.pw-icon-disabled {
+					opacity: 0.3;	
+				}
+			}
+
+			.toggle-icon {
+				line-height: 1em;
+				margin-right: 0.5em;
+			}
+		}
+		
+	}
+	
+	.InputfieldStateCollapsed .InputfieldRepeaterSettingsToggle {
+		display: none;
+	}
+		
+	.InputfieldRepeaterItem:not(.InputfieldRepeaterDeletePending) {
+		// repeater items not marked for deletion
+		
+		&.InputfieldStateCollapsed > .InputfieldHeader {
+			// collapsed items are faded out a bit 
+			opacity: 0.90;
+			&:hover {
+				opacity: 1.0;
+			}
+		}
+		&.InputfieldRepeaterUnpublished > .InputfieldHeader {
+			// unpublished items faded a bit more 
+			opacity: 0.7;
+		}
+		&.InputfieldRepeaterOff > .InputfieldHeader {
+			// off items faded yet even more 
+			opacity: 0.5;
+			&:not(:hover) > .InputfieldRepeaterItemLabel {
+				text-decoration: line-through;
+			}
+		}
+	}
+	
+	.InputfieldRepeaterItem.InputfieldRepeaterDeletePending > .InputfieldHeader > .InputfieldRepeaterItemLabel {
+		text-decoration: line-through;
+	}
+	
+	.InputfieldRepeaterItem.InputfieldRepeaterItemLoading {
+		// override the margin-bottom 1.25em from admin theme stylesheet, so margin isn't showing while item is loading
+		margin-bottom: 1em;
+	}
+	
+	.InputfieldRepeaterItem.InputfieldStateCollapsed > .InputfieldContent {
+		// for some reason .InputfieldContent still shows on ajax-loaded items after closing them, this fixes that 
+		display: none !important;
+	}
+	
+	.InputfieldRepeaterNewItem {
+		// used by non-ajax add mode
+		display: none;
+	}
+	
+	.InputfieldRepeaterDelete {
+		// delete checkbox
+		display: none;
+	}
+	
+	&.InputfieldRepeaterSingle {
+		// repeater in single-item mode
+		> .InputfieldContent > .Inputfields {
+			margin-bottom: 0;
+			> .InputfieldRepeaterItem {
+				margin-bottom: 0;
+				> .InputfieldHeader {
+					display: none;
+				}
+			}
+		}
+	}
+
+}
+
+.InputfieldRepeater {
+	z-index: 1; 	
+	
+	.InputfieldWrapper,
+	.InputfieldWrapper > .Inputfields {
+		margin-top: 0 !important;
+	}
+
+	ul.ui-sortable > .InputfieldRepeaterItem > .InputfieldHeader {
+		//padding-left: 25px;
+		position: relative;
+	}
+
+	.InputfieldRepeaterAddItem input {
+		// count of added items hidden
+		display: none !important;
+	}
+
+	ul.Inputfields + .InputfieldRepeaterAddItem {
+		// removes extra space at top when 'add item' is the only thing in the repeater field 
+		margin-top: 0;
+	}
+	
+	.InputfieldRepeaterDrag {
+		// draggable icon for repeater items
+		display: inline-block;
+		cursor: ns-resize;
+		opacity: 0.7;
+		line-height: 1em;
+		&:hover {
+			cursor: move;
+			opacity: 1.0;
+		}
+	}
+	
+	&.InputfieldRenderValueMode {
+		.InputfieldRepeaterDrag {
+			margin-right: 0.25em;
+			opacity: 0.5;
+			&:hover {
+				cursor: not-allowed;
+				opacity: 0.5;
+			}
+		}
+	}
+}
+
+.AdminThemeReno .InputfieldRepeaterItem > .InputfieldHeader .ui-priority-secondary {
+	// AdminThemeReno has wrong/reverse color here for ui-priority-secondary, not sure why
+	color: rgba(255,255,255,0.8) !important;
+}
+

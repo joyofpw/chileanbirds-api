@@ -1,0 +1,224 @@
+<?php namespace ProcessWire;
+
+/**
+ * ProcessWire FieldtypeComments > CommentFilter > CommentFilterAkismet
+ *
+ * Implementation of a CommentFilter class specific to the Akismet filtering service. 
+ * 
+ * ProcessWire 3.x, Copyright 2019 by Ryan Cramer
+ * https://processwire.com
+ *
+ *
+ */
+
+$dirname = dirname(__FILE__); 
+require_once($dirname . "/CommentFilter.php"); 
+
+/**
+ * Uses the Akismet service to identify comment spam. Module plugin for the Comments Fieldtype.
+ * 
+ * @property string $apiKey
+ * @property string $validKey
+ * @property Comment $comment
+ * @property string $pageUrl
+ *
+ *
+ */
+class CommentFilterAkismet extends CommentFilter implements Module, ConfigurableModule {
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => __('Comment Filter: Akismet', __FILE__),
+			'version' => 200,
+			'summary' => __('Uses the Akismet service to identify comment spam. Module plugin for the Comments Fieldtype.', __FILE__),
+			'permanent' => false, 
+			'singular' => false,
+			'autoload' => false,
+			'requires' => 'FieldtypeComments',
+			);
+	}
+
+	public function __construct() {
+		parent::__construct();
+		$this->set('appUserAgent', "ProcessWire/3 | AkismetCommentFilter/2"); 
+		$this->set('apiKey', '');
+		$this->set('validKey', ''); 
+	}
+	
+	protected function akismetHttpPost($action, array $data) {
+		
+		$http = new WireHttp();
+		$http->setHeader('content-type', "application/x-www-form-urlencoded; charset={$this->charset}");
+		$http->setHeader('user-agent', $this->appUserAgent);
+		
+		$response = $http->post('https://' . $this->apiKey . ".rest.akismet.com/1.1/$action", $data);
+
+		$result = $response;
+		if($action === 'comment-check') $result = $result === 'true' ? 'SPAM' : 'not spam';
+		$msg = "$action: $result "; 
+		$comment = $this->comment;
+		
+		if($comment) {
+			if($comment->id) $msg .= "comment $comment->id ";
+			$msg .= "by $comment->email "; 
+			$page = $this->comment->getPage();
+			if($page && $page->id) $msg .= "on page $page->path";
+		}
+		
+		$this->saveLog($msg); 
+		
+		return trim($response);
+	}
+
+	/**
+	 * Verify Akismet API key
+	 * 
+	 * @param string $apiKey
+	 * @return bool
+	 * 
+	 */
+	protected function verifyKey($apiKey = '') {
+	
+		if(empty($apiKey)) $apiKey = $this->apiKey;
+		
+		if(empty($apiKey)) {
+			if(strlen($this->validKey)) $this->wire('modules')->saveConfig($this, 'validKey', ''); 
+			return false;
+		}
+		
+		if($apiKey === $this->validKey) return true;
+		
+		$request = array(
+			'key' => $this->apiKey, 
+			'blog' => $this->wire('config')->urls->httpRoot
+		);
+		
+		$response = $this->akismetHttpPost('verify-key', $request); 
+		
+		if($response === 'valid') {
+			$this->validKey = $apiKey;
+			$this->wire('modules')->saveConfig($this, array(
+				'apiKey' => $apiKey,
+				'validKey' => $apiKey, 
+			));
+			$msg = "Akismet API key has been validated";
+			$this->message($msg);
+			$this->saveLog($msg);
+			return true;
+			
+		} else if($response === 'invalid') {
+			$msg = 'Invalid Akismet API key provided';
+			if(strlen($this->validKey)) $this->wire('modules')->saveConfig($this, 'validKey', ''); 
+			$this->error($msg); 
+			$this->saveLog("$msg: $apiKey");
+			return false;
+		}
+		
+		return false; 
+	}
+
+	/**
+	 * Build Akismet POST request
+	 * 
+	 * @return array
+	 * @throws WireException
+	 * 
+	 */
+	public function buildRequest() {
+		return array(
+			'blog' => $this->wire('config')->urls->httpRoot,
+			'user_ip' => $this->comment->ip,
+			'user_agent' => $this->comment->user_agent,
+			'permalink' => $this->comment->httpUrl(), 
+			'comment_type' => 'comment',
+			'comment_author' => $this->comment->cite,
+			'comment_author_email' => $this->comment->email,
+			'comment_author_url' => $this->comment->website,
+			'comment_content' => $this->comment->text
+		);
+	}
+
+
+	/**
+	 * Check if comment is spam
+	 * 
+	 * @return bool
+	 * 
+	 */
+	public function checkSpam() {
+		
+		if($this->comment->status == Comment::statusSpam) return true; 
+		if(!$this->verifyKey()) return false;
+		
+		$request = $this->buildRequest();
+		$response = $this->akismetHttpPost('comment-check', $request);
+		$isSpam = $response === 'true';
+		$this->setIsSpam($isSpam);
+		
+		return $isSpam;
+	}
+
+	/**
+	 * Tell Akismet comment is spam
+	 * 
+	 */
+	public function submitSpam() {
+		if(!$this->verifyKey()) return false;
+		$request = $this->buildRequest();
+		$this->akismetHttpPost('submit-spam', $request);
+		$this->message("Notified Akismet of spam that it didn't identify"); 
+		return true;
+	}
+
+	/**
+	 * Tell Akismet comment is not spam and they made an error
+	 *
+	 */
+	public function submitHam() {
+		if(!$this->verifyKey()) return false;
+		$request = $this->buildRequest();
+		$this->akismetHttpPost('submit-ham', $request);
+		$this->message("Notified Akismet of a spam false positive (ham)"); 
+		return true;
+	}
+
+	/**
+	 * Save log entry
+	 * 
+	 * @param string $msg
+	 *
+	 */
+	public function saveLog($msg) {
+		$this->wire('log')->save('comment-filter-akismet', $msg); 
+	}
+
+
+	/**
+	 * Configure module
+	 * 
+	 * @param array $data
+	 * @return InputfieldWrapper
+	 * 
+	 */
+	public function getModuleConfigInputfields(array $data) {
+
+		$inputfields = $this->wire(new InputfieldWrapper());
+
+		$name = "apiKey";
+		if(!isset($data[$name])) $data[$name] = '';
+		$f = $this->wire('modules')->get('InputfieldText'); 
+		$f->attr('name', $name); 
+		$f->attr('value', $data[$name]); 
+		$f->label = $this->_('Akismet Key');
+		$f->description = $this->_('If you want to have comments automatically identified as spam, the Comments fieldtype can utilize the Akismet service to do this. In order to use it, you must enter an Akismet API key obtained from akismet.com. Use of this service is optional but recommended.'); // Akismet description
+
+		$inputfields->append($f);
+		$this->verifyKey($data[$name]);
+
+		return $inputfields;
+
+	}
+}
+
+
+

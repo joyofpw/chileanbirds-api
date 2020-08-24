@@ -1,0 +1,405 @@
+<?php namespace ProcessWire;
+
+/**
+ * ProcessWire Datetime Inputfield
+ *
+ * Provides input for date and optionally time values. 
+ *
+ * For documentation about the fields used in this class, please see:  
+ * /wire/core/Fieldtype.php
+ * 
+ * ProcessWire 3.x, Copyright 2020 by Ryan Cramer
+ * https://processwire.com
+ * 
+ * ~~~~~~
+ * // get a datetime Inputfield
+ * $f = $modules->get('InputfieldDatetime');
+ * $f->attr('name', 'test_date'); 
+ * $f->label = 'Test date';
+ * $f->val(time()); // value is get or set a UNIX timestamp
+ * 
+ * // date input with jQuery UI datepicker on focus
+ * $f->inputType = 'text'; // not necessary as this is the default
+ * $f->datepicker = InputfieldDatetime::datepickerFocus;
+ * 
+ * // date selects
+ * $f->inputType = 'select';
+ * $f->dateSelectFormat = 'mdy'; // month abbr (i.e. 'Sep'), day, year
+ * $f->dateSelectFormat = 'Mdy'; // month full (i.e. 'September'), day, year
+ * $f->yearFrom = 2019; // optional year range from
+ * $f->yearTo = 2024; // optional year range to
+ * 
+ * // HTML5 date, time or date+time inputs
+ * $f->inputType = 'html';
+ * $f->htmlType = 'date'; // or 'time' or 'datetime'
+ * ~~~~~~
+ * 
+ * @property int $value This Inputfield keeps the value in UNIX timestamp format (int).
+ * @property string $inputType Input type to use, one of: "text", "select" or "html" (when html type is used, also specify $htmlType).
+ * @property int|bool $defaultToday When no value is present, default to today’s date/time?
+ * @property int $subYear Substitute year when month+day or time only selections are made (default=2010)
+ * @property int $subDay Substitute day when month+year or time only selectinos are made (default=8)
+ * @property int $subMonth Substitute month when time-only selections are made (default=4)
+ * @property int $subHour Substitute hour when date-only selections are made (default=0)
+ * @property int $subMinute Substitute minute when date-only selection are made (default=0)
+ * @property bool|int $requiredAttr When combined with "required" option, this also makes it use the HTML5 "required" attribute (default=false).
+ * 
+ * Properties specific to "text" input type (with optional jQuery UI datepicker)
+ * =============================================================================
+ * @property int $datepicker jQuery UI datepicker type (see `datepicker*` constants)
+ * @property string $yearRange Selectable year range in the format `-30:+20` where -30 is number of years before now and +20 is number of years after now.
+ * @property int $timeInputSelect jQuery UI timeSelect type (requires datepicker)—specify 1 to use a `<select>` for time input, or 0 to use a slider (default=0)
+ * @property string $dateInputFormat Date input format to use, see WireDateTime::$dateFormats (default='Y-m-d')
+ * @property string $timeInputFormat Time input format to use, see WireDateTime::$timeFormats (default='')
+ * @property string $placeholder Placeholder attribute text
+ * 
+ * Properties specific to "html" input type
+ * ========================================
+ * @property string $htmlType When "html" is selection for $inputType, this should be one of: "date", "time" or "datetime".
+ * @property int $timeStep Refers to the step attribute on time inputs
+ * @property string $timeMin Refers to the min attribute on time inputs (HH:MM)
+ * @property string $timeMax Refers to the max attribute on time inputs (HH:MM)
+ * @property int $dateStep Refers to the step attribute on date inputs
+ * @property string $dateMin Refers to the min attribute on date inputs, ISO-8601 (YYYY-MM-DD)
+ * @property string $dateMax Refers to the max attribute on date inputs, ISO-8601 (YYYY-MM-DD)
+ * 
+ * Properties specific to "select" input type
+ * ==========================================
+ * @property string $dateSelectFormat Format to use for date select 
+ * @property string $timeSelectFormat Format to use for time select
+ * @property int $yearFrom First selectable year (default=current year - 100)
+ * @property int $yearTo Last selectable year (default=current year + 20)
+ * @property bool|int $yearLock Disallow selection of years outside the yearFrom/yearTo range? (default=false)
+ * 
+ *
+ */
+
+class InputfieldDatetime extends Inputfield {
+	
+	public static function getModuleInfo() {
+		return array(
+			'title' => __('Datetime', __FILE__), // Module Title
+			'summary' => __('Inputfield that accepts date and optionally time', __FILE__), // Module Summary
+			'version' => 107,
+			'permanent' => true,
+		);
+	}
+
+	/**
+	 * ISO-8601 date/time formats (default date input format)
+	 * 
+	 * #pw-internal
+	 * 
+	 */
+	const defaultDateInputFormat = 'Y-m-d';
+	const defaultTimeInputFormat = 'H:i';
+	const secondsTimeInputFormat = 'H:i:s';
+
+
+	/**
+	 * jQuery UI datepicker: None
+	 * 
+	 */
+	const datepickerNo = 0;
+	
+	/**
+	 * jQuery UI datepicker: Click button to show
+	 *
+	 */
+	const datepickerClick = 1;
+	
+	/**
+	 * jQuery UI datepicker: Inline datepicker always visible (no timepicker support)
+	 *
+	 */
+	const datepickerInline = 2;
+	
+	/**
+	 * jQuery UI datepicker: Show when input focused (recommend option when using datepicker)
+	 *
+	 */
+	const datepickerFocus = 3;
+
+
+	/**
+	 * @var InputfieldDatetimeType[]
+	 * 
+	 */
+	protected $inputTypes = array();
+	
+	
+	/**
+	 * Initialize the date/time inputfield
+	 *
+	 */
+	public function init() {
+		
+		$this->attr('type', 'text'); 
+		$this->attr('size', 25); 
+		$this->attr('placeholder', '');
+		
+		$this->set('defaultToday', 0); 
+		$this->set('inputType', 'text'); 
+		$this->set('subYear', 2010); 
+		$this->set('subMonth', 4); 
+		$this->set('subDay', 8); 
+		$this->set('subHour', 0); 
+		$this->set('subMinute', 0);
+		$this->set('requiredAttr', 0);
+		
+		foreach($this->getInputTypes() as $name => $type) {
+			$this->setArray($type->getDefaultSettings()); 
+		}
+
+		parent::init();
+	}
+	
+	/**
+	 * Return ISO-8601 substitute date (combination of subYear, subMonth, subDay)
+	 * 
+	 * #pw-internal
+	 * 
+	 * @return string
+	 * 
+	 */
+	public function subDate() {
+		$year = (int) parent::getSetting('subYear');
+		$month = (int) parent::getSetting('subMonth');
+		$day = (int) parent::getSetting('subDay');
+		if($year < 1000 || $year > 2500) $year = (int) date('Y');
+		if($month > 12 || $month < 1) $month = 1;
+		if($month < 10) $month = "0$month";
+		if($day > 31 || $day < 1) $day = 1;
+		if($day < 10) $day = "0$day";
+		return "$year-$month-$day";
+	}
+
+	/**
+	 * Return ISO-8601 substitute time (combination of subHour:subMinute:00)
+	 * 
+	 * #pw-internal
+	 * 
+	 * @return string
+	 *
+	 */
+	public function subTime() {
+		$hour = (int) parent::getSetting('subHour');
+		$minute = (int) parent::getSetting('subMinute');
+		if($hour > 23 || $hour < 0) $hour = 0;
+		if($hour < 10) $hour = "0$hour";
+		if($minute > 59 || $minute < 0) $minute = 0;
+		if($minute < 10) $minute = "0$minute";
+		return "$hour:$minute:00";
+	}
+
+	/**
+	 * Get all date/time input types
+	 * 
+	 * @return InputfieldDatetimeType[]
+	 * 
+	 */
+	public function getInputTypes() {
+		
+		if(count($this->inputTypes)) {
+			return $this->inputTypes;
+		}
+		
+		$path = dirname(__FILE__) . '/';
+		require_once($path . 'InputfieldDatetimeType.php');
+		$dir = new \DirectoryIterator($path . 'types/');
+		
+		foreach($dir as $file) {
+			if($file->isDir() || $file->isDot() || $file->getExtension() != 'php') continue;
+			require_once($file->getPathname());
+			$className = wireClassName($file->getBasename('.php'), true);
+			/** @var InputfieldDatetimeType $type */
+			$type = $this->wire(new $className($this));
+			$name = $type->getTypeName();
+			$this->inputTypes[$name] = $type;
+		}
+		
+		return $this->inputTypes;
+	}
+
+	/**
+	 * Get current date/time input type instance
+	 * 
+	 * @param string $typeName
+	 * @return InputfieldDatetimeType
+	 * 
+	 */
+	public function getInputType($typeName = '') {
+		$inputTypes = $this->getInputTypes();
+		if(!$typeName) $typeName = $this->inputType;
+		if(!$typeName || !isset($inputTypes[$typeName])) $typeName = 'text';
+		return $inputTypes[$typeName];
+	}
+
+	/**
+	 * Set property
+	 * 
+	 * @param string $key
+	 * @param mixed $value
+	 * @return Inputfield|WireData
+	 * 
+	 */
+	public function set($key, $value) {
+		if($key === 'dateMin' || $key === 'dateMax') {
+			if(is_int($value)) $value = date(self::defaultDateInputFormat, $value);
+		} else if($key === 'timeMin' || $key === 'timeMax') {
+			if(is_int($value)) $value = date(self::defaultTimeInputFormat, $value); 
+		}
+		return parent::set($key, $value); 
+	}
+	
+	/**
+	 * Called before the render method, from a hook in the Inputfield class
+	 *
+	 * We are overriding it here and checking for a datepicker, so that we can make sure 
+	 * jQuery UI is loaded before the InputfieldDatetime.js
+	 * 
+	 * @param Inputfield $parent
+	 * @param bool $renderValueMode
+	 * @return bool
+	 *
+	 */
+	public function renderReady(Inputfield $parent = null, $renderValueMode = false) {
+		$this->addClass("InputfieldNoFocus", 'wrapClass');
+		$this->getInputType()->renderReady();
+		return parent::renderReady($parent, $renderValueMode); 
+	}
+
+	/**
+	 * Render the date/time inputfield
+	 * 
+	 * @return string
+	 *
+	 */
+	public function ___render() {
+		return $this->getInputType()->render();
+	}
+
+	/**
+	 * Render value for presentation, non-input
+	 *
+	 */
+	public function ___renderValue() {
+		
+		$out = $this->getInputType()->renderValue();
+		if($out) return $out;
+		
+		$value = $this->attr('value');
+		if(!$value) return '';
+		$format = self::defaultDateInputFormat . ' ';
+		if($this->timeStep > 0 && $this->timeStep < 60) {
+			$format .= self::secondsTimeInputFormat;
+		} else {
+			$format .= self::defaultTimeInputFormat;
+		}
+		
+		return $this->wire('datetime')->formatDate($value, trim($format));
+	}
+
+	/**
+	 * Process input
+	 * 
+	 * @param WireInputData $input
+	 * @return Inputfield|InputfieldDatetime
+	 * 
+	 */
+	public function ___processInput(WireInputData $input) {
+		
+		$valuePrevious = $this->val();
+		$value = $this->getInputType()->processInput($input);
+		
+		if($value === false) {
+			// false indicates type is not processing input
+			parent::___processInput($input);
+			$value = $this->getAttribute('value');
+		} else {
+			$this->setAttribute('value', $value); 
+		}
+	
+		if($value !== $valuePrevious) {
+			$this->trackChange('value', $valuePrevious, $value);
+			$parent = $this->getParent();
+			if($parent) $parent->trackChange($this->name);
+		}
+
+		return $this;
+	}
+
+	/**
+	 * Capture setting of the 'value' attribute and convert string dates to unix timestamp
+	 * 
+	 * @param string $key
+	 * @param mixed $value
+	 * @return Inputfield|InputfieldDatetime
+	 *
+	 */
+	public function setAttribute($key, $value) {
+		if($key === 'value') {
+			if(empty($value) && "$value" !== "0") {
+				// empty value that’s not 0
+				$value = '';
+			} else if(is_int($value) || ctype_digit("$value")) {
+				// unix timestamp
+				$value = (int) $value;
+			} else if(strlen($value) > 8 && $value[4] === '-' && $value[7] === '-' && ctype_digit(substr($value, 0, 4))) {
+				// ISO-8601, i.e. 2010-04-08 02:48:00
+				$value = strtotime($value); 
+			} else {
+				$value = $this->getInputType()->sanitizeValue($value);
+			}
+		}
+		return parent::setAttribute($key, $value); 
+	}
+
+	/**
+	 * Date/time Inputfield configuration, per field
+	 *
+	 */
+	public function ___getConfigInputfields() {
+
+		$inputfields = parent::___getConfigInputfields();
+		$inputTypes = $this->getInputTypes();
+		$modules = $this->wire('modules'); /** @var Modules $modules */
+
+		/** @var InputfieldRadios $f */
+		$f = $modules->get('InputfieldRadios');
+		$f->attr('name', 'inputType'); 
+		$f->label = $this->_('Input Type'); 
+		$f->icon = 'calendar';
+		
+		foreach($inputTypes as $inputTypeName => $inputType) {
+			$f->addOption($inputTypeName, $inputType->getTypeLabel());
+		}
+		
+		$inputTypeVal = $this->getSetting('inputType');
+		if(!$inputTypeVal) $inputTypeVal = 'text';
+		if(!isset($inputTypes[$inputTypeVal])) $inputTypeVal = 'text';
+		$f->val($inputTypeVal);
+		$inputfields->add($f);
+
+		foreach($inputTypes as $inputTypeName => $inputType) {
+			/** @var InputfieldFieldset $inputfields */
+			$fieldset = $modules->get('InputfieldFieldset');
+			$fieldset->attr('name', '_' . $inputTypeName . 'Options');
+			$fieldset->label = $inputType->getTypeLabel();
+			$fieldset->showIf = 'inputType=' . $inputTypeName;
+			$inputType->getConfigInputfields($fieldset);
+			$inputfields->add($fieldset);
+		}
+		
+		/** @var InputfieldCheckbox $f */
+		$f = $this->modules->get('InputfieldCheckbox');
+		$f->setAttribute('name', 'defaultToday');
+		$f->attr('value', 1);
+		if($this->defaultToday) $f->attr('checked', 'checked');
+		$f->label = $this->_('Default to today’s date?');
+		$f->description = $this->_('If checked, this field will hold the current date when no value is entered.'); // Default today description
+		$inputfields->append($f);
+
+		return $inputfields; 
+	}
+}

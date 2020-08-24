@@ -1,0 +1,3120 @@
+<?php namespace ProcessWire;
+
+/**
+ * ProcessWire Page Edit Process
+ *
+ * Provides the UI for editing a page
+ * 
+ * For more details about how Process modules work, please see: 
+ * /wire/core/Process.php 
+ * 
+ * ProcessWire 3.x, Copyright 2018 by Ryan Cramer
+ * https://processwire.com
+ * 
+ * @property string $noticeUnknown
+ * @property string $noticeLocked
+ * @property string $noticeNoAccess
+ * @property string $noticeIncomplete
+ * @property string $viewAction One of 'panel', 'modal', 'new', 'this' (see getViewActions method)
+ * @property bool $useBookmarks
+ * 
+ * @method Page loadPage($id)
+ * @method string execute()
+ * @method string executeTemplate()
+ * @method void executeSaveTemplate($template = null)
+ * @method string executeBookmarks()
+ * @method array getViewActions($actions = array(), $configMode = false)
+ * @method array getSubmitActions()
+ * @method bool processSubmitAction($value)
+ * @method void processSaveRedirect($redirectUrl)
+ * @method InputfieldForm buildForm(InputfieldForm $form)
+ * @method InputfieldWrapper buildFormContent()
+ * @method InputfieldWrapper buildFormChildren()
+ * @method InputfieldWrapper buildFormSettings()
+ * @method InputfieldWrapper buildFormDelete()
+ * @method void buildFormView($url)
+ * @method InputfieldMarkup buildFormRoles()
+ * @method void processInput(InputfieldWrapper $form, $level = 0, $formRoot = null)
+ * @method void ajaxSave(Page $page)
+ * @method bool ajaxEditable(Page $page, $fieldName = '')
+ * @method array getTabs()
+ * 
+ */
+
+class ProcessPageEdit extends Process implements WirePageEditor, ConfigurableModule {
+	
+	/**
+	 * Module information
+	 *
+	 * @return array
+	 *
+	 */
+	public static function getModuleInfo() {
+		return array(
+			'title' => 'Page Edit',
+			'summary' => 'Edit a Page',
+			'version' => 109,
+			'permanent' => true,
+			'permission' => 'page-edit',
+			'icon' => 'edit',
+			'useNavJSON' => true
+		);
+	}
+
+	/**
+	 * Page edit form
+	 * 
+	 * @var InputfieldForm
+	 * 
+	 */
+	protected $form;
+
+	/**
+	 * Page being edited
+	 * 
+	 * @var Page
+	 * 
+	 */
+	protected $page;
+
+	/**
+	 * Single field to edit (if only 'fields' specified, this contains first field present in 'fields')
+	 * 
+	 * @var null|Field
+	 * 
+	 */
+	protected $field = null; 
+
+	/**
+	 * Array of fields to edit, indexed by field name
+	 * 
+	 * @var array|Field[]
+	 * 
+	 */	
+	protected $fields = array();
+
+	/**
+	 * Field name suffix, applicable only when field or fields (above) is also set, in specific situations like repeaters
+	 * 
+	 * @var string
+	 * 
+	 */
+	protected $fnsx = '';
+
+	/**
+	 * Substituted master page (deprecated)
+	 * 
+	 * @var null|Page
+	 * 
+	 */
+	protected $masterPage = null;
+
+	/**
+	 * Parent of page being edited
+	 * 
+	 * @var Page
+	 * 
+	 */
+	protected $parent;
+
+	/**
+	 * User that is editing
+	 * 
+	 * @var User
+	 * 
+	 */
+	protected $user;
+
+	/**
+	 * @var int ID of page being edited
+	 * 
+	 */
+	protected $id;
+
+	/**
+	 * URL to redirect to
+	 * 
+	 * @var string
+	 * 
+	 */
+	protected $redirectUrl;
+
+	/**
+	 * @var string PHP class name of Page being edited
+	 * 
+	 */
+	protected $pageClass;
+
+	/**
+	 * Is the page in the trash?
+	 * 
+	 * @var bool
+	 * 
+	 */
+	protected $isTrash;
+
+	/**
+	 * Cache used by getAllowedTemplates() method
+	 * 
+	 * Contains Template objects indexed by template ID.
+	 * 
+	 * @var array|Template[]
+	 * 
+	 */
+	protected $allowedTemplates = null; // cache
+
+	/**
+	 * Is this a POST request to save a page?
+	 * 
+	 * @var bool
+	 * 
+	 */
+	protected $isPost = false;
+
+	/**
+	 * Show the "settings" tab?
+	 * 
+	 * @var bool
+	 * 
+	 */
+	protected $useSettings = true;
+
+	/**
+	 * Show the "children" tab?
+	 * 
+	 * @var bool
+	 * 
+	 */
+	protected $useChildren = true;
+
+	/**
+	 * Show the "view" tab/link?
+	 * 
+	 * @var bool
+	 * 
+	 */
+	protected $useView = true;
+
+	/**
+	 * Identified tabs in the form indexed by tab ID and values are tab labels
+	 * 
+	 * @var array
+	 * 
+	 */
+	protected $tabs = array();
+
+	/**
+	 * Predefined list of parents allowed for edited page (array of Page objects), set by setPredefinedParents() method
+	 * 
+	 * @var array|PageArray
+	 * 
+	 */
+	protected $predefinedParents = array();
+
+	/**
+	 * Predefined list of templates allowed for edited page (array of Template objects), set by setPredefinedTemplates() method
+	 * 
+	 * @var array|Template[]
+	 * 
+	 */
+	protected $predefinedTemplates = array();
+
+	/**
+	 * Primary editor process, if not $this
+	 * 
+	 * @var null|WirePageEditor
+	 * 
+	 */
+	protected $editor = null;
+
+	/**
+	 * Tell the Page what Process is being used to edit it?
+	 * 
+	 */
+	protected $setEditor = true;
+
+	/**
+	 * Names of changed fields
+	 * 
+	 * @var array
+	 * 
+	 */
+	protected $changes = array();
+
+	/**
+	 * @var Modules
+	 * 
+	 */
+	protected $modules;
+
+	/**
+	 * @var WireInput
+	 * 
+	 */
+	protected $input;
+
+	/**
+	 * @var Config
+	 * 
+	 */
+	protected $config;
+
+	/**
+	 * @var Sanitizer
+	 * 
+	 */
+	protected $sanitizer;
+
+	/**
+	 * @var Session
+	 * 
+	 */
+	protected $session;
+
+	/**
+	 * Sanitized contents of get[modal]
+	 * 
+	 * @var int|string|bool|null
+	 * 
+	 */
+	protected $requestModal = null;
+
+	/**
+	 * Sanitized contents of get[context]
+	 * 
+	 * @var string
+	 * 
+	 */
+	protected $requestContext = '';
+
+	/**
+	 * Sanitized contents of get[language]
+	 * 
+	 * @var Language|null
+	 * 
+	 */
+	protected $requestLanguage = null;
+
+	/**
+	 * Is the LanguageSupportPageNames module installed?
+	 * 
+	 * @var bool
+	 * 
+	 */
+	protected $hasLanguagePageNames = false;
+
+	/**
+	 * Contents of $config->pageEdit
+	 * 
+	 * @var array
+	 * 
+	 */
+	protected $configSettings = array(
+		'viewNew' => false,
+		'confirm' => true,
+		'ajaxChildren' => true,
+		'ajaxParent' => true,
+		'editCrumbs' => false,
+	);
+
+	/**
+	 * Other core page classes
+	 * 
+	 * @var array
+	 * 
+	 */
+	protected $otherCorePageClasses = array(
+		'User',	
+		'Role',
+		'Permission',
+		'Language'
+	);
+	
+	/***********************************************************************************************************************
+	 * METHODS
+	 * 
+	 */
+
+	/**
+	 * Construct
+	 * 
+	 */
+	public function __construct() {
+		$this->set('useBookmarks', false);
+		$this->set('viewAction', 'this');
+		return parent::__construct();
+	}
+	
+	public function wired() {
+		if($this->wire('process') instanceof WirePageEditor) {
+			// keep existing process, which may be building on top of this one
+		} else {
+			$this->wire('process', $this);
+		}
+	}
+
+	/**
+	 * Initialize the page editor by loading the requested page and any dependencies
+	 * 
+	 * @throws WireException|Wire404Exception|WirePermissionException
+	 *
+	 */
+	public function init() {
+		
+		$this->modules = $this->wire('modules');
+		$this->input = $this->wire('input');
+		$this->config = $this->wire('config');
+		$this->user = $this->wire('user');
+		$this->sanitizer = $this->wire('sanitizer');
+		$this->session = $this->wire('session');
+		
+		// predefined messages that maybe used in multiple places
+		$this->set('noticeUnknown', $this->_("Unknown page")); // Init error: Unknown page
+		$this->set('noticeLocked', $this->_("This page is locked for edits")); // Init error: Page is locked
+		$this->set('noticeNoAccess', $this->_("You don't have access to edit")); // Init error: User doesn't have access
+		$this->set('noticeIncomplete', $this->_("This page might have one or more incomplete fields (attempt to save or publish for more info)"));
+		
+		$settings = $this->config->pageEdit;
+		if(is_array($settings)) $this->configSettings = array_merge($this->configSettings, $settings); 
+		
+		if(in_array($this->input->urlSegment1, array('navJSON', 'bookmarks'))) return;
+	
+		$getID = $this->input->get('id');
+		if($getID === 'bookmark') {
+			$this->session->redirect('./bookmarks/');
+			return;
+		}
+		$getID = (int) $getID;
+		$postID = (int) $this->input->post('id');
+		$id = abs($postID ? $postID : $getID); 
+
+		if(!$id) {
+			$this->session->redirect('./bookmarks/');
+			throw new Wire404Exception($this->noticeUnknown, Wire404Exception::codeSecondary); // Init error: no page provided
+		}
+
+		$this->page = $this->loadPage($id); 
+		$this->id = $this->page->id; 
+		$this->pageClass = $this->page->className();
+		$this->page->setOutputFormatting(false);
+		$this->parent = $this->pages->get($this->page->parent_id);
+		$this->isTrash = $this->page->isTrash();
+		
+		// check if editing specific field or fieldset only
+		if($this->page) {
+			$field = $this->input->get('field');
+			$fields = $this->input->get('fields'); 
+			if($this->input->get('fnsx') !== null) $this->fnsx = $this->input->get->fieldName('fnsx');
+			if($field && !$fields) $fields = $field;
+			if($fields) {
+				$fields = explode(',', $fields); 
+				foreach($fields as $fieldName) {
+					$fieldName = $this->sanitizer->fieldName($fieldName);
+					if(!$fieldName) throw new WireException("Invalid field name specified");
+					$field = $this->page->template->fieldgroup->getField($fieldName, true); // get in context
+					if(!$field) throw new WireException("Field '$fieldName' is not applicable to this page");
+					$this->fields[$field->name] = $field; 
+				}
+				$this->field = reset($this->fields);
+				$this->useChildren = false;
+				$this->useSettings = false;
+				$this->useView = false;
+			}
+		}
+
+		// determine if we're going to be dealing with a save/post request
+		$this->isPost = ($postID > 0 && ($postID === $this->page->id)) 
+			|| ($this->config->ajax && (count($_POST) || isset($_SERVER['HTTP_X_FIELDNAME']))); 
+
+		if(!$this->isPost) { 
+			$this->setupHeadline();
+			$this->setupBreadcrumbs();
+		}
+
+		// optional context GET var
+		$context = $this->input->get('context');
+		if($context) $this->requestContext = $this->sanitizer->name($context);
+	
+		// optional language GET var
+		$languages = $this->wire('languages');
+		if($languages) {
+			$this->hasLanguagePageNames = $this->modules->isInstalled('LanguageSupportPageNames');
+			if($this->hasLanguagePageNames) {
+				$languageID = (int) $this->input->get('language');
+				if($languageID > 0) {
+					$language = $languages->get($languageID);
+					if($language->id && $language->id != $this->user->language->id) $this->requestLanguage = $language;
+				}
+			}
+		}
+	
+		// optional modal setting
+		if($this->config->modal) {
+			$this->requestModal = $this->sanitizer->name($this->config->modal);	
+		}
+
+		parent::init();
+
+		if(!$this->isPost) {
+			$this->modules->get('JqueryWireTabs');
+			/** @var JqueryUI $jQueryUI */
+			$jQueryUI = $this->modules->get('JqueryUI');
+			$jQueryUI->use('modal');
+		}
+
+	}
+	
+	/**
+	 * Given a page ID, return the Page object
+	 *
+	 * @param int $id
+	 * @return Page
+	 * @throws WireException|WirePermissionException
+	 *
+	 */
+	protected function ___loadPage($id) {
+	
+		/** @var Page|NullPage $page */
+		$page = $this->wire('pages')->get((int) $id); 
+		
+		if($page instanceof NullPage) {
+			throw new WireException($this->noticeUnknown); // page doesn't exist
+		}
+
+		$editable = $page->editable();
+	
+		/** @var User $user */
+		$user = $this->user;
+		
+		/** @var Config $config */
+		$config = $this->config;
+		
+		/** @var Config $config */
+		$input = $this->input; 
+		
+		if($page instanceof User) {
+			// special case when page is a User
+			
+			$userAdmin = $user->hasPermission('user-admin');
+			$field = $input->get('field') ? $this->wire('fields')->get($input->get->fieldName('field')) : null;
+			
+			if($userAdmin && $this->wire('process') != 'ProcessUser') {
+				// only allow user pages to be edited from the access section (at least for non-superusers)
+				$this->session->redirect($config->urls->admin . 'access/users/edit/?id=' . $page->id);
+				
+			} else if(!$userAdmin && $page->id === $user->id && $field && $config->ajax) {
+				// user is editing themself and we're responding to an ajax request for a field
+				/** @var PagePermissions $pagePermissions */
+				$pagePermissions = $this->modules->get('PagePermissions');
+				$editable = $pagePermissions->userFieldEditable($field); 
+				// prevent a later potential redirect to user editor
+				if($editable) $this->setEditor = false;
+			}
+		}
+		
+		if(!$editable) {
+			throw new WirePermissionException($this->noticeNoAccess);
+		}
+			
+		return $page;
+	}
+
+	/**
+	 * Execute the Page Edit process by building the form and checking if it was submitted
+	 * 
+	 * @return string
+	 * @throws WireException
+	 *
+	 */
+	public function ___execute() {
+		
+		if(!$this->page) throw new WireException("No page found");
+		
+		if($this->setEditor) {
+			// note that setting the editor can force a redirect to a ProcessPageType editor
+			$this->page->setEditor($this->editor ? $this->editor : $this);
+		}
+		
+		if($this->config->ajax && (isset($_SERVER['HTTP_X_FIELDNAME']) || count($_POST))) {
+			$this->ajaxSave($this->page);
+			return '';
+		}
+
+		if($this->page->hasStatus(Page::statusTemp) && $this->page->parent->template->childNameFormat == 'title') {
+			// make it set page name from page title
+			$this->page->name = '';
+		}
+		
+		$adminTheme = $this->wire('adminTheme');
+		if($adminTheme) {
+			$className = $this->className();
+			$adminTheme->addBodyClass("$className-id-{$this->page->id}");
+			$adminTheme->addBodyClass("$className-template-{$this->page->template->name}");
+		}
+
+		$this->form = $this->modules->get('InputfieldForm');
+		$this->form = $this->buildForm($this->form);
+		$this->form->setTrackChanges();
+
+		if($this->isPost && count($_POST)) $this->processSave();
+
+		if($this->page->hasStatus(Page::statusLocked)) {
+			if($this->user->hasPermission('page-lock', $this->page)) {
+				$this->warning($this->noticeLocked); // Page locked message
+			} else {
+				$this->error($this->noticeLocked); // Page locked error
+			}
+		} else if(!$this->isPost && $this->page->hasStatus(Page::statusFlagged) && !$this->input->get('s')) {
+			$this->warning($this->noticeIncomplete); 
+		}
+
+		return $this->renderEdit();
+	}
+	
+
+	/*********************************************************************************************************************
+	 * EDITOR FORM BUILDING
+	 *
+	 */
+
+	/**
+	 * Render the Page Edit form
+	 *
+	 * @return string
+	 * 
+	 */
+	protected function renderEdit() {
+		
+		$class = '';
+		$numFields = count($this->fields);
+		$out = "<p id='PageIDIndicator' class='$class'>" . ($this->page->id ? $this->page->id : "New") . "</p>";
+	
+		$description = $this->form->getSetting('description');
+		if($description) { 
+			$out .= "<h2>" . $this->form->entityEncode($description, Inputfield::textFormatBasic) . "</h2>";
+			$this->form->set('description', '');
+		}
+
+		if(!$numFields) { 
+			/** @var JqueryWireTabs $tabs */
+			$tabs = $this->modules->get('JqueryWireTabs');
+			$this->form->value = $tabs->renderTabList($this->getTabs(), array('id' => 'PageEditTabs')); 
+		}
+		
+		$out .= $this->form->render();
+	
+		// buttons with dropdowns
+		if(!$numFields) {
+			$submitActions = $this->getSubmitActions();
+			if(count($submitActions)) {
+				$config = $this->config;
+				$file = $config->debug ? 'dropdown.js' : 'dropdown.min.js';
+				$config->scripts->add($config->urls('InputfieldSubmit') . $file);
+				$input = "<input type='hidden' id='after-submit-action' name='_after_submit_action' value='' />";
+				$out = str_replace('</form>', "$input</form>", $out);
+				$out .= "<ul class='pw-button-dropdown' data-pw-dropdown-input='#after-submit-action' data-my='right top' data-at='right bottom+1'>";
+				foreach($submitActions as $action) {
+					$icon = empty($action['icon']) ? "" : "<i class='fa fa-fw fa-$action[icon]'></i>";
+					$class = empty($action['class']) ? "after-submit-$action[value]" : $action['class'];
+					$out .= "<li><a class='$class' data-pw-dropdown-value='$action[value]' href='#'>$icon $action[label]</a></li>";
+				}
+				$out .= "</ul>";
+			}
+		}
+		
+		if(!$numFields && !$this->requestModal && $this->page->viewable()) {
+			// this supports code in the buildFormView() method
+			$out .= "<ul id='_ProcessPageEditViewDropdown' class='pw-dropdown-menu pw-dropdown-menu-rounded' data-my='left top' data-at='left top-9'>";
+			foreach($this->getViewActions() as $name => $action) {
+				$out .= "<li class='page-view-action-$name'>$action</li>";
+			}
+			$out .= "</ul>";
+		}
+
+		$out .= "<scr" . "ipt>initPageEditForm();</script>"; // ends up being slightly faster than ready() (or at least appears that way)
+		
+		return $out; 
+	}
+
+	/**
+	 * Get actions for submit button(s)
+	 * 
+	 * Should return array where each item in the array is itself an array like this:
+	 * ~~~~~
+	 * [ 
+	 *   'value' => 'value of action, i.e. view, edit, add, etc.', 
+	 *   'icon' => 'icon name excluding the “fa-” part', 
+	 *   'label' => 'text label where %s is replaced with submit button label',
+	 *   'class' => 'optional class attribute',
+	 * ]
+	 * ~~~~~~
+	 * Array returned by this method is indexed by the 'value', though this is not required for hooks.
+	 * 
+	 * #pw-hooker
+	 * 
+	 * @return array
+	 * @throws WireException
+	 * @since 3.0.142
+	 * @see ___processSubmitAction()
+	 * 
+	 */
+	protected function ___getSubmitActions() {
+		
+		if($this->requestModal) return array();
+		
+		$viewable = $this->page->viewable();
+		$actions = array();
+		
+		$actions['exit'] = array(
+			'value' => 'exit',
+			'icon' => 'close',
+			'label' => $this->_('%s + Exit'),
+			'class' => '',
+		);
+		
+		if($viewable) $actions['view'] = array(
+			'value' => 'view',
+			'icon' => 'eye',
+			'label' => $this->_('%s + View'),
+			'class' => '',
+		);
+		
+		if($this->wire('process') == $this && $this->page->id > 1) {
+			
+			$parent = $this->page->parent();
+			if($parent->addable()) $actions['add'] = array(
+				'value' => 'add',
+				'icon' => 'plus-circle',
+				'label' => $this->_('%s + Add New'),
+				'class' => '',
+			);
+			
+			if($parent->numChildren > 1) $actions['next'] = array(
+				'value' => 'next',
+				'icon' => 'edit',
+				'label' => $this->_('%s + Next'),
+				'class' => '',
+			);
+		}
+	
+		return $actions;
+	}
+
+	/**
+	 * Get URL to view this page
+	 * 
+	 * @param Language|int|string|null $language
+	 * @return string
+	 * @throws WireException
+	 * @since 3.0.142 Was protected in previous versions
+	 * 
+	 */
+	public function getViewUrl($language = null) {
+		$url = '';
+		if(!$this->page) throw new WireException('No page yet');
+		if($this->hasLanguagePageNames) {
+			/** @var Languages $languages */
+			$languages = $this->wire('languages');
+			if($language) {
+				if(is_string($language) || is_int($language)) $language = $languages->get($language);
+				$userLanguage = $language;
+			} else if($this->requestLanguage) {
+				$userLanguage = $this->requestLanguage;
+			} else {
+				$userLanguage = $this->user->language;
+			}
+			if($userLanguage && $userLanguage->id) {
+				$url = $this->page->localHttpUrl($userLanguage);
+			}
+		}
+		if(!$url) $url = $this->page->httpUrl();
+		return $url;
+	}
+
+	/**
+	 * Get actions for the "View" dropdown
+	 * 
+	 * #pw-hooker
+	 * 
+	 * @param array $actions Actions in case hook wants to populate them
+	 * @param bool $configMode Specify true if retrieving for configuration purposes rather than runtime purposes.
+	 * @return array of <a> tags or array of labels if $configMode == true
+	 * 
+	 */
+	protected function ___getViewActions($actions = array(), $configMode = false) {
+		
+		$labels = array(
+			'view' => $this->_x('Page View', 'panel-title'),
+			'panel' => $this->_x('Panel', 'view-label'),
+			'modal' => $this->_x('Modal Popup', 'view-label'),
+			'new' => $this->_x('New Window/Tab', 'view-label'),
+			'this' => $this->_x('Exit + View', 'view-label'),
+		);
+
+		$icons = array(
+			'panel' => 'columns',
+			'modal' => 'picture-o',
+			'new' => 'external-link-square',
+			'this' => 'eye',
+		);
+
+		if($configMode) {
+			unset($labels['view']);
+			return $labels;
+		}
+
+		$url = $this->getViewUrl();
+		if($this->page->hasStatus(Page::statusDraft) && strpos($url, '?') === false) $url .= '?draft=1';
+		$languages = $this->hasLanguagePageNames ? $this->page->template->getLanguages() : null;
+	
+		foreach($icons as $name => $icon) {
+			$labels[$name] = "<i class='fa fa-fw fa-$icon'></i>&nbsp;" . $labels[$name];
+		}
+		
+		$class = '';
+		$languageUrls = array();
+		if($languages) {
+			$class .= ' pw-has-items';
+			foreach($languages as $language) {
+				if(!$this->page->viewable($language)) continue;
+				$localUrl = $this->page->localHttpUrl($language);
+				if($this->page->hasStatus(Page::statusDraft) && strpos($localUrl, '?') === false) $localUrl .= '?draft=1';
+				$languageUrls[$language->id] = $localUrl;
+			}
+		}
+	
+		$actions = array_merge(array(
+			"panel" => "<a class='pw-panel pw-panel-reload$class' href='$url' data-tab-text='$labels[view]' data-tab-icon='eye'>$labels[panel]</a>",
+			"modal" => "<a class='pw-modal pw-modal-large$class' href='$url'>$labels[modal]</a>",
+			"new" => "<a class='$class' target='_blank' href='$url'>$labels[new]</a>",
+			"this" => "<a class='$class' target='_top' href='$url'>$labels[this]</a>",
+		), $actions);
+		
+		foreach($actions as $name => $action) {
+			if(count($languageUrls) > 1) {
+				$ul = "<ul class=''>";
+				foreach($languages as $language) {
+					/** @var Language $language */
+					if(!isset($languageUrls[$language->id])) continue;
+					$localUrl = $languageUrls[$language->id];
+					$label = $language->get('title|name');
+					$_action = str_replace(' pw-has-items', '', $action);
+					$_action = str_replace("'$url'", "'$localUrl'", $_action);
+					$_action = str_replace(">" . $labels[$name] . "<", ">$label<", $_action);
+					$_action = str_replace("='$labels[view]'", "='$label'", $_action); // panel language
+					$ul .= "<li>$_action</li>";
+				}
+				$ul .= "</ul>";
+				$actions[$name] = str_replace('</a>', ' &nbsp;</a>', $actions[$name]) . $ul;
+			} else {
+				$actions[$name] = str_replace(' pw-has-items', '', $action);
+			}
+		}
+		
+		return $actions;
+	}
+
+	/**
+	 * Get URL (or form action attribute) for editing this page
+	 * 
+	 * @param array $options
+	 *  - `id` (int): Page ID to edit
+	 *  - `modal` (int|string): Modal mode, when applicable
+	 *  - `context` (string): Additional request context string, when applicable
+	 *  - `language` (int|Language|string): Language for editor, if different from user’s language
+	 *  - `field` (string): Only edit field with this name
+	 *  - `fields` (string): CSV string of fields to edit, rather than all fields on apge
+	 *  - `fnsx` (string): Field name suffix, applicable only when field or fields (above) is also set, in specific situations like repeaters
+	 *  - `uploadOnlyMode (string|int): Upload only mode (internal use)
+	 * @return string
+	 * 
+	 */
+	public function getEditUrl($options = array()) {
+		$defaults = array(
+			'id' => $this->page->id, 
+			'modal' => $this->requestModal,
+			'context' => $this->requestContext,
+			'language' => $this->requestLanguage,
+			'field' => '', 
+			'fields' => '',
+			'fnsx' => $this->fnsx,
+			'uploadOnlyMode' => '',
+		);
+		if($this->field) {
+			$numFields = count($this->fields);
+			if($numFields == 1 && $this->field) {
+				$defaults['field'] = $this->field->name;
+			} else if($numFields > 1) {
+				$defaults['fields'] = implode(',', array_keys($this->fields));
+			}
+		}
+		$uploadOnlyMode = (int) $this->input->get('uploadOnlyMode'); 
+		if($uploadOnlyMode && !$this->config->ajax) $defaults['uploadOnlyMode'] = $uploadOnlyMode;
+		$options = array_merge($defaults, $options);
+		$qs = array();
+		foreach($options as $name => $value) {
+			if(!empty($value)) $qs[] = "$name=$value";
+		}
+		return './?' . implode('&', $qs);
+	}
+
+	/**
+	 * Build the form used for Page Edits
+	 * 
+	 * @param InputfieldForm $form
+	 * @return InputfieldForm
+	 *
+	 */
+	protected function ___buildForm(InputfieldForm $form) {
+
+		$form->attr('id+name', 'ProcessPageEdit');
+		$form->attr('action', $this->getEditUrl(array('id' => $this->id)));
+		$form->attr('method', 'post'); 
+		$form->attr('enctype', 'multipart/form-data'); 
+		$form->attr('class', 'ui-helper-clearfix template_' . $this->page->template . ' class_' . $this->page->className); 
+		$form->attr('autocomplete', 'off');
+		$form->attr('data-uploading', $this->_('Are you sure? An upload is currently in progress and it may be lost if you proceed.'));
+		
+		if($this->configSettings['confirm']) $form->addClass('InputfieldFormConfirm');
+
+		// for ProcessPageEditImageSelect support
+		if($this->input->get('uploadOnlyMode') && !$this->config->ajax) {
+			// for modal uploading with InputfieldFile or InputfieldImage
+			if(count($this->fields) && $this->field->type instanceof FieldtypeImage) {
+				$this->setRedirectUrl("../image/?id=$this->id");
+			}
+		}
+		
+		$saveName = 'submit_save';
+		$saveLabel = $this->_("Save"); // Button: save
+		$submit2 = null; // second submit button, when applicable
+	
+		if($this->field) { 
+			// focus in on a specific field or fields 
+			$form->addClass('ProcessPageEditSingleField');
+
+		
+			foreach($this->fields as $field) {
+				$options = array(
+					'contextStr' => $this->fnsx,
+					'fieldName' => $field->name,
+					'namespace' => '',
+					'flat' => true,
+				);
+				foreach($this->page->getInputfields($options) as $inputfield) {
+					if(!$this->page->editable($field->name, false)) continue;
+					$skipCollapsed = array(
+						Inputfield::collapsedHidden,
+						Inputfield::collapsedNoLocked,
+						Inputfield::collapsedYesLocked,
+					);
+					$collapsed = $inputfield->getSetting('collapsed');
+					if($collapsed > 0 && !in_array($collapsed, $skipCollapsed)) {
+						$inputfield->collapsed = Inputfield::collapsedNo;
+					}
+					$form->add($inputfield);
+				}
+			}
+			
+		} else {
+			// all fields
+			// determine what content fields should become tabs
+			
+			$contentTab = $this->buildFormContent();
+			$tabs = array();
+			$tabWrap = null;
+			$tabOpen = null;
+			$tabViewable = null;
+			
+			foreach($contentTab as $inputfield) {
+				if(!$tabOpen && $inputfield->className == 'InputfieldFieldsetTabOpen') {
+					// open new tab
+					$showable = $this->isTrash ? 'editable' : 'viewable';
+					$tabViewable = $this->page->$showable($inputfield->attr('name'));
+					if($this->isPost) {
+						// only remove non-visible tabs when in post/save mode, for proper processInput()
+						if(!$tabViewable) $contentTab->remove($inputfield);
+						// during post requests, this goes no further, as theres no need for visual tab manipulation
+						continue;
+					}
+					$tabOpen = $inputfield; 
+					$tabWrap = $this->wire(new InputfieldWrapper());
+					$tabWrap->attr('title', $tabOpen->getSetting('label'));
+					$tabWrap->id = $tabOpen->attr('id');
+					$tabWrap->collapsed = $tabOpen->getSetting('collapsed');
+					// @todo support description in fieldset tab: works but needs styles for each admin theme, so commented out for now
+					// $tabWrap->description = $inputfield->description;
+					$tabWrap->notes = $inputfield->notes;
+					$contentTab->remove($inputfield); 
+					if(!$tabViewable) continue;
+					
+					if($inputfield->modal) {
+						$href = $this->getEditUrl(array('field' => $inputfield->name, 'modal' => 1)); 
+						$this->addTab($tabOpen->id, "<a class='pw-modal' " .
+							"title='" . $this->sanitizer->entities($tabOpen->label) . "' " . 
+							"data-buttons='#ProcessPageEdit button[type=submit]' " . 
+							"data-autoclose='1' " . 
+							"href='$href'>" . 
+							$this->sanitizer->entities1($tabOpen->label) . "</a>");
+						/** @var JqueryUI $jqueryUI */
+						$jqueryUI = $this->modules->get('JqueryUI');
+						$jqueryUI->use('modal');
+						$tabOpen = null;
+					} else {
+						$this->addTab($tabOpen->id, $this->sanitizer->entities1($tabOpen->label));
+					}
+					
+				} else if($tabOpen && !$this->isPost) {
+					/** @var Inputfield $tabOpen */
+					// already have a tab open
+					if($inputfield->attr('name') == $tabOpen->attr('name') . '_END') {
+						// close tab
+						if($tabViewable) $tabs[] = $tabWrap; 
+						$tabOpen = null;
+					} else if($tabViewable) {
+						// add to already open tab
+						$tabWrap->add($inputfield); 
+					}
+					$contentTab->remove($inputfield); 
+				}
+			}
+
+			$form->append($contentTab);
+			if(!$this->isPost) {
+				foreach($tabs as $tab) $form->append($tab);
+			}
+	
+			if($this->page->addable() || $this->page->numChildren) $form->append($this->buildFormChildren()); 
+			if(!$this->page->template->noSettings && $this->useSettings) $form->append($this->buildFormSettings()); 
+			if($this->isTrash && !$this->isPost) {
+				$this->message($this->_("This page is in the Trash"));
+				$tabRestore = $this->buildFormRestore();
+				if($tabRestore) $form->append($tabRestore);
+			}
+			$tabDelete = $this->buildFormDelete();
+			if($tabDelete->children()->count()) $form->append($tabDelete);
+			if($this->page->viewable() && !$this->requestModal) $this->buildFormView($this->getViewUrl()); 
+	
+			if($this->page->hasStatus(Page::statusUnpublished)) {
+				$pageClassName = wireClassName($this->page, false); 
+				$publishable = $this->page->publishable();
+				if($publishable && (in_array($pageClassName, $this->otherCorePageClasses) || $this->page->template->noUnpublish)) {
+					// Do not show a button allowing page to remain unpublished for User, Permission, Role, Language or
+					// if the page's template indicates it cannot be unpublished
+				} else {
+					/** @var InputfieldSubmit $submit2 */
+					$submit2 = $this->modules->get('InputfieldSubmit');
+					$submit2->attr('name', 'submit_save');
+					$submit2->attr('id', 'submit_save_unpublished');
+					$submit2->showInHeader();
+					$submit2->setSecondary();
+					if($this->session->get('clientWidth') > 900) {
+						$submit2->attr('value', $this->_('Save + Keep Unpublished')); // Button: save unpublished
+					} else {
+						$submit2->attr('value', $saveLabel); // Button: save unpublished
+					}
+				}
+	
+				if($publishable) {
+					$saveName = 'submit_publish';
+					$saveLabel = $this->_("Publish"); // Button: publish
+				} else {
+					$saveName = '';
+				}
+			} else {
+				// use saveName and saveLabel defined at top of method
+			}
+		} // !$fieldName
+
+		if($saveName) {
+			/** @var InputfieldSubmit $submit */
+			$submit = $this->modules->get('InputfieldSubmit');
+			$submit->attr('id+name', $saveName);
+			$submit->attr('value', $saveLabel);
+			$submit->showInHeader();
+			$form->append($submit);
+		}
+
+		if($submit2) $form->append($submit2); 
+
+		/** @var InputfieldHidden $field */
+		$field = $this->modules->get('InputfieldHidden');
+		$field->attr('name', 'id');
+		$field->attr('value', $this->page->id); 
+		$form->append($field);
+		
+		return $form; 
+	}
+
+	/**
+	 * Build the 'content' tab on the Page Edit form
+	 * 
+	 * @return InputfieldWrapper
+	 *
+	 */
+	protected function ___buildFormContent() {
+
+		$fields = $this->page->getInputfields(array('flat' => !$this->isPost));
+		$id = $this->className() . 'Content'; 
+		$title = $this->page->template->getTabLabel('content'); 
+		if(!$title) $title = $this->_('Content'); // Tab Label: Content
+		
+		$fields->attr('id', $id); 
+		$fields->attr('title', $title); 
+		$fields->addClass('WireTab');
+		$this->addTab($id, $title);
+
+		if($this->page->template->nameContentTab) {
+			$fields->prepend($this->buildFormPageName());
+		}
+
+		return $fields;
+	}
+
+	/**
+	 * Build the 'children' tab on the Page Edit form
+	 * 
+	 * @return InputfieldWrapper
+ 	 *
+	 */
+	protected function ___buildFormChildren() {
+
+		$page = $this->masterPage ? $this->masterPage : $this->page; 
+		$wrapper = $this->wire(new InputfieldWrapper());
+		$id = $this->className() . 'Children';
+		$wrapper->attr('id+name', $id);
+		if(!empty($this->configSettings['ajaxChildren'])) $wrapper->collapsed = Inputfield::collapsedYesAjax;
+		$defaultTitle = $this->_('Children'); // Tab Label: Children
+		$title = $this->page->template->getTabLabel('children'); 
+		if(!$title) $title = $defaultTitle;
+		if($page->numChildren) $wrapper->attr('title', "<em>$title</em>"); 
+			else $wrapper->attr('title', $title); 
+		$this->addTab($id, $title);
+		$templateSortfield = $this->page->template->sortfield;
+		
+		if(!$this->isPost) { 
+
+			$pageListParent = $page ? $page : $this->parent;
+			if($pageListParent->numChildren) {
+				/** @var ProcessPageList $pageList */
+				$pageList = $this->modules->get('ProcessPageList'); 
+				$pageList->set('id', $pageListParent->id); 
+				$pageList->set('showRootPage', false); 
+			} else $pageList = null;
+
+			/** @var InputfieldMarkup $field */
+			$field = $this->modules->get("InputfieldMarkup"); 
+			$field->attr('id+name', 'ChildrenPageList');
+			$field->label = $title == $defaultTitle ? $this->_("Children / Subpages") : $title; // Children field label
+			if($pageList) {
+				$field->value = $pageList->execute();
+			} else {
+				$field->description = $this->_("There are currently no children/subpages below this page.");
+			}
+
+			if($templateSortfield && $templateSortfield != 'sort') {
+				$field->notes = sprintf($this->_('Children are sorted by "%s", per the template setting.'), $templateSortfield); 
+			}
+
+			if($page->addable()) { 
+				/** @var InputfieldButton $button */
+				$button = $this->modules->get("InputfieldButton"); 
+				$button->attr('id+name', 'AddPageBtn'); 
+				$button->attr('value', $this->_('Add New Page Here')); // Button: add new child page
+				$button->icon = 'plus-circle';
+				$button->attr('href', "../add/?parent_id={$page->id}" . ($this->requestModal ? "&modal=$this->requestModal" : ''));
+				$field->append($button);
+			}
+			$wrapper->append($field); 
+		}
+
+		if(empty($this->page->template->sortfield) && $this->user->hasPermission('page-sort', $this->page)) { 		
+			$sortfield = $this->page->sortfield && $this->page->sortfield != 'sort' ? $this->page->sortfield : '';
+			$fieldset = self::buildFormSortfield($sortfield, $this); 
+			$fieldset->attr('id+name', 'ChildrenSortSettings'); 
+			$fieldset->label = $this->_('Sort Settings'); // Children sort settings field label
+			$fieldset->icon = 'sort';
+			$fieldset->description = $this->_("If you want all current and future children to automatically sort by a specific field, select the field below and optionally check the 'reverse' checkbox to make the sort descending. Leave the sort field blank if you want to be able to drag-n-drop to your own order."); // Sort settings description text
+			$wrapper->append($fieldset); 
+		}
+
+		return $wrapper;
+	}
+
+	/**
+	 * Build the sortfield configuration fieldset
+	 *
+	 * NOTE: This is also used by ProcessTemplate, so it is self contained
+	 *
+	 * @param string $sortfield Current sortfield value
+	 * @param Process $caller The calling process
+	 * @return InputfieldFieldset
+	 *
+	 */
+	public static function buildFormSortfield($sortfield, Process $caller) {
+
+		$fieldset = $caller->wire('modules')->get("InputfieldFieldset"); 
+		if(!$sortfield) $fieldset->collapsed = Inputfield::collapsedYes; 
+
+		$field = $caller->wire('modules')->get('InputfieldSelect');
+		$field->name = 'sortfield'; 
+		$field->value = ltrim($sortfield, '-'); 
+		$field->columnWidth = 60; 
+		$field->label = __('Children are sorted by', __FILE__); // Children sort field label
+
+		// if in ProcessTemplate, give a 'None' option that indicates the Page has control
+		if($caller instanceof ProcessTemplate) $field->addOption('', __('None', __FILE__)); 
+
+		$field->addOption('sort', __('Manual drag-n-drop', __FILE__));
+
+		$options = array(
+			'name' => 'name', 
+			'status' => 'status', 
+			'modified' => 'modified', 
+			'created' => 'created',
+			'published' => 'published', 
+			); 
+
+		$field->addOption(__('Native Fields', __FILE__), $options); // Optgroup label for sorting by fields native to ProcessWire
+
+		$customOptions = array();
+
+		foreach($caller->wire('fields') as $f) {
+			//if(!($f->flags & Field::flagAutojoin)) continue; 
+			if($f->flags & Field::flagSystem && $f->name != 'title' && $f->name != 'email') continue; 
+			if($f->type instanceof FieldtypeFieldsetOpen) continue; 
+			$customOptions[$f->name] = $f->name; 
+		}
+
+		ksort($customOptions); 
+		$field->addOption(__('Custom Fields', __FILE__), $customOptions); // Optgroup label for sorting by custom fields
+		$fieldset->append($field); 
+
+		$f = $caller->wire('modules')->get('InputfieldCheckbox');
+		$f->value = 1; 
+		$f->attr('id+name', 'sortfield_reverse'); 
+		$f->label = __('Reverse sort direction?', __FILE__); // Checkbox labe to reverse the sort direction
+		$f->icon = 'rotate-left';
+		if(substr($sortfield, 0, 1) == '-') $f->attr('checked', 'checked'); 
+		$f->showIf = "sortfield!='', sortfield!=sort";
+		$f->columnWidth = 40; 
+
+		$fieldset->append($f); 
+		return $fieldset; 
+	}
+
+	/**
+	 * Build the 'settings' tab on the Page Edit form
+	 * 
+	 * @return InputfieldWrapper
+	 *
+	 */
+	protected function ___buildFormSettings() {
+		
+		$superuser = $this->wire('user')->isSuperuser();
+
+		/** @var InputfieldWrapper $wrapper */
+		$wrapper = $this->wire(new InputfieldWrapper());
+		$id = $this->className() . 'Settings';
+		$title = $this->_('Settings'); // Tab Label: Settings
+		$wrapper->attr('id', $id); 
+		$wrapper->attr('title', $title); 
+		$this->addTab($id, $title);
+
+		// name
+		if(($this->page->id > 1 || $this->hasLanguagePageNames) && !$this->page->template->nameContentTab) {
+			$wrapper->prepend($this->buildFormPageName()); 
+		}
+
+		// template
+		$wrapper->add($this->buildFormTemplate()); 
+
+		// parent
+		if($this->page->id > 1 && $this->page->editable('parent', false)) {
+			$wrapper->add($this->buildFormParent()); 
+		}
+
+		// createdUser
+		if($this->page->id && $superuser && $this->page->template->allowChangeUser) {
+			$wrapper->add($this->buildFormCreatedUser());
+		}
+
+		// status
+		$wrapper->add($this->buildFormStatus()); 
+
+		// roles and references
+		if(!$this->isPost) {
+			// what users may access this page
+			$wrapper->add($this->buildFormRoles());
+			// what pages link tot his page
+			$wrapper->add($this->buildFormReferences());
+		}
+
+		// page path history (previous URLs)
+		if($superuser) {
+			$f = $this->buildFormPrevPaths();
+			if($f) $wrapper->add($f);
+		}
+	
+		// information about created and modified user and time
+		if(!$this->isPost) {
+			$wrapper->add($this->buildFormInfo());
+		}
+		
+		return $wrapper; 
+	}
+
+	/**
+	 * Build the page name input
+	 *
+	 * @return InputfieldPageName
+	 *
+	 */
+	protected function buildFormPageName() {
+
+		/** @var InputfieldPageName $field */
+		$field = $this->modules->get('InputfieldPageName');
+		$field->attr('name', '_pw_page_name');
+		$field->attr('value', $this->page->name);
+		$field->slashUrls = $this->page->template->slashUrls;
+		$field->required = $this->page->id != 1 && !$this->page->hasStatus(Page::statusTemp);
+
+		$label = $this->page->template->getNameLabel();
+		if($label) $field->label = $label;
+
+		if(!$this->page->editable('name', false)) {
+			$field->attr('disabled', 'disabled');
+			$field->required = false;
+		}
+
+		if($this->hasLanguagePageNames) {
+			// Using 'hasLanguages' as opposed to 'useLanguages' for different support from LanguageSupportPageNames
+			$field->setQuietly('hasLanguages', true);
+		}
+
+		$field->editPage = $this->page;
+		if($this->page->parent) $field->parentPage = $this->page->parent;
+
+		return $field;
+	}
+
+	/**
+	 * Build the template selection field
+	 *
+	 * @return InputfieldMarkup|InputfieldSelect
+	 *
+	 */
+	protected function buildFormTemplate() {
+
+		if($this->page->editable('template', false)) {
+			/** @var Languages $languages */
+			$languages = $this->wire('languages');
+			/** @var Language $language */
+			$language = $this->user->language;
+
+			/** @var InputfieldSelect $field */
+			$field = $this->modules->get('InputfieldSelect');
+			$field->attr('id+name', 'template');
+			$field->attr('value', $this->page->template->id);
+			$field->required = true;
+
+			foreach($this->getAllowedTemplates() as $template) {
+				/** @var Template $template */
+				$label = '';
+				if($languages && $language) $label = $template->get('label' . $language->id);
+				if(!$label) $label = $template->label ? $template->label : $template->name;
+				$field->addOption($template->id, $label);
+			}
+		} else {
+			/** @var InputfieldMarkup $field */
+			$field = $this->modules->get('InputfieldMarkup');
+			$field->attr('value', "<p>" . $this->page->template->getLabel() . "</p>");
+		}
+
+		$field->label = $this->_('Template'); // Settings: Template field label
+		$field->icon = 'cubes';
+
+		return $field;
+	}
+
+	/**
+	 * Build the parent selection Inputfield
+	 *
+	 * @return InputfieldPageListSelect|InputfieldSelect
+	 *
+	 */
+	protected function buildFormParent() {
+
+		if(count($this->predefinedParents)) {
+			/** @var InputfieldSelect $field */
+			$field = $this->modules->get('InputfieldSelect');
+			foreach($this->predefinedParents as $p) {
+				$field->addOption($p->id, $p->path);
+			}
+
+		} else {
+			/** @var InputfieldPageListSelect $field */
+			$field = $this->modules->get('InputfieldPageListSelect');
+			$field->set('parent_id', 0);
+			if(!empty($this->configSettings['ajaxParent'])) {
+				$field->collapsed = Inputfield::collapsedYesAjax;
+			}
+		}
+
+		$field->required = true;
+		$field->label = $this->_('Parent'); // Settings: Parent field label
+		$field->icon = 'folder-open-o';
+		$field->attr('id+name', 'parent_id');
+		$field->attr('value', $this->page->parent_id);
+
+		return $field;
+	}
+
+	/**
+	 * Build the created user selection
+	 *
+	 * @return InputfieldPageListSelect
+	 *
+	 */
+	protected function buildFormCreatedUser() {
+		/** @var InputfieldPageListSelect $field */
+		$field = $this->modules->get('InputfieldPageListSelect');
+		$field->label = $this->_('Created by User');
+		$field->attr('id+name', 'created_users_id');
+		$field->attr('value', $this->page->created_users_id);
+		$field->parent_id = $this->config->usersPageID; // @todo support $config->usersPageIDs (array)
+		$field->showPath = false;
+		$field->required = true;
+
+		return $field;
+	}
+	
+	/**
+	 * Build the Settings > References fieldset on the Page Edit form
+	 *
+	 * @return InputfieldMarkup
+	 *
+	 */
+	protected function buildFormReferences() {
+	
+		/** @var InputfieldMarkup $field */
+		$field = $this->modules->get('InputfieldMarkup');
+		$field->attr('id', 'ProcessPageEditReferences');
+		$field->label = $this->_('What pages link to this page?');
+		$field->icon = 'link';
+		$field->collapsed = Inputfield::collapsedYesAjax;
+
+		if($this->input->get('renderInputfieldAjax') != 'ProcessPageEditReferences') return $field;
+		
+		$links = $this->page->links("include=all, limit=100");
+		$references = $this->page->references("include=all, limit=100");
+
+		$numTotal = $references->getTotal() + $links->getTotal();
+		$numShown = $references->count() + $links->count();
+		$numNotShown = $numTotal - $numShown;
+		$labelNotListable = $this->_('Not listable');
+
+		if($numTotal) {
+			$field->description = sprintf(
+				$this->_('Found %d other page(s) linking to this one in Page fields or href links.'),
+				$numTotal
+			);
+			$out = "<ul>";
+			$itemsByType = array(
+				$this->_('(in page field)') => $references,
+				$this->_('(in href link)') => $links
+			);
+			foreach($itemsByType as $label => $items) {
+				$label = "<span class='detail'>$label</span>";
+				foreach($items as $item) {
+					/** @var Page $item */
+					if($item->listable()) {
+						$url = $item->editable() ? $item->editUrl() : $item->url();
+						$out .= "<li><a href='$url' title='$item->url' target='_blank'>" . $item->get('title|path') . "</a> $label</li>";
+					} else {
+						$out .= "<li>$item->id $labelNotListable $label</li>";
+					}
+				}
+			}
+			$out .= "</ul>";
+			if($numNotShown) {
+				$out .= "<div class='notes'>" . sprintf($this->_('%d additional pages not shown.'), $numNotShown) . "</div>";
+			}
+		} else {
+			$out = "<p>" . $this->_('Did not find any other pages pointing to this one in page fields or href links.') . "</p>";
+		}
+		
+		$field->value = $out;
+		
+		return $field;
+	}
+	
+	/**
+	 * Build the “Settings > What URLs redirect to this page?” fieldset on the Page Edit form
+	 *
+	 * @return InputfieldMarkup|null
+	 *
+	 */
+	protected function buildFormPrevPaths() {
+	
+		/** @var WireInput $input */
+		$input = $this->wire('input');
+		/** @var Modules $modules */
+		$modules = $this->wire('modules');
+		/** @var Sanitizer $sanitizer */
+		$sanitizer = $this->wire('sanitizer');
+		/** @var Languages|null $languages */
+		$languages = $this->wire('languages');
+		
+		if($this->isPost && $input->post('_prevpath_add') === null) return null;
+		if(!$modules->isInstalled('PagePathHistory')) return null;
+
+		/** @var InputfieldMarkup $field */
+		$field = $modules->get('InputfieldMarkup');
+		$field->attr('id', 'ProcessPageEditPrevPaths');
+		$field->label = $this->_('What other URLs redirect to this page?');
+		$field->icon = 'map-signs';
+		
+		if(!$this->isPost) {				
+			$field->collapsed = Inputfield::collapsedYesAjax;
+			if($input->get('renderInputfieldAjax') != 'ProcessPageEditPrevPaths') return $field;
+		}
+		
+		$field->description = 
+			$this->_('Whenever a page is moved or the name changes, we remember the previous location for redirects.') . ' ' . 
+			$this->_('Below is a list of URLs (paths) that automatically redirect to this page (using 301 permanent redirect).') . ' ' . 
+			$this->_('You may delete any paths/URLs or manually add new ones.'); 
+		
+		/** @var PagePathHistory $history */
+		$history = $modules->get('PagePathHistory');
+		$data = $history->getPathHistory($this->page, array(
+			'verbose' => true,
+			'virtual' => true
+		));
+		
+		$multilang = $languages && $modules->isInstalled('LanguageSupportPageNames');
+		$slashUrls = $this->page->template->slashUrls;
+		$deleteIDs = array();
+		$rootUrl = $this->wire('config')->urls->root;
+		
+		/** @var InputfieldCheckbox $delete */
+		$delete = $modules->get('InputfieldCheckbox');
+		$delete->label = wireIconMarkup('trash-o');
+		$delete->attr('name', '_prevpath_delete[]');
+		$delete->entityEncodeLabel = false;
+		$delete->attr('title', $this->_x('Delete', 'prev-path-delete'));
+		$delete->renderReady();
+		
+		if($this->isPost) {
+			$deleteIDs = array_flip($input->post->array('_prevpath_delete'));
+		}
+
+		/** @var MarkupAdminDataTable $table */
+		$table = $modules->get('MarkupAdminDataTable');
+		$table->setEncodeEntities(false);
+		$table->setSortable(false);
+		
+		$header = array(
+			$this->_x('URL', 'prev-path'),
+			$this->_x('When', 'prev-path-date'),
+		);
+
+		if(count($data)) {
+			if($multilang) $header[] = $this->_x('Language', 'prev-path-language');
+			$header[] = '&nbsp;';
+			if(!$multilang) {
+				$row = array(
+					$sanitizer->entities($this->page->path),
+					$this->_x('Current', 'prev-path-current'),
+					'&nbsp;',
+				);
+				$table->row($row);
+			}
+		} else {
+			$table->row(array(
+				$this->_('No redirect paths'),
+				$this->_('Not yet')
+			));
+		}
+		
+		$table->headerRow($header);
+		
+		foreach($data as $n => $item) {
+			
+			$id = md5($item['path'] . $item['date']); 
+			$path = $item['path'];
+			
+			if($this->isPost && isset($deleteIDs[$id])) {
+				if($history->deletePathHistory($this->page, $path)) {
+					$this->message(sprintf($this->_('Deleted redirect for previous URL: %s'), $path));
+					continue;
+				}
+			}
+
+			if($slashUrls) $path .= '/';
+		
+			$url = $sanitizer->entities(rtrim($rootUrl, '/') . $path);
+			$path = $sanitizer->entities($path);
+			$row = array(
+				"<a href='$url' target='_blank'>$path</a>",
+				wireRelativeTimeStr($item['date']),
+			);
+			if($multilang && isset($item['language'])) {
+				/** @var Language $language */
+				$language = $item['language'];
+				if($language && $language->id) {
+					$langLabel = $language->get('title|name');
+					if(!$language->isDefault() && !$this->page->get("status$language")) $langLabel = "<s>$langLabel</s>";
+					$row[] = $langLabel;
+				} else {
+					$row[] = '?';
+				}
+			}
+			if(empty($item['virtual'])) {
+				$delete->attr('name', '_prevpath_delete[]');
+				$delete->attr('value', $id);
+				$row[] = "<div class='InputfieldCheckbox'>" . $delete->render() . "</div>";
+			} else {
+				$parentLabel = $this->_x('Parent', 'prev-path-parent');
+				$parent = $this->wire('pages')->get((int) $item['virtual']);
+				if($parent->id) $parentLabel = "<a target='_blank' title='$parent->path' href='$parent->editUrl'>$parentLabel</a>";
+				$row[] = $parentLabel;
+			}
+			$table->row($row);
+		}
+	
+		/** @var InputfieldTextarea $add */
+		$add = $modules->get('InputfieldTextarea');
+		$add->attr('name', '_prevpath_add'); 
+		$add->label = $this->_('Add new redirect URLs');
+		$add->description = 
+			$this->_('Enter additional paths/URLs (one per line) that should redirect to this page.') . ' ' . 
+			$this->_('Enter the URL path only (i.e. “/hello/world/”), do NOT include scheme, domain, port, query string or fragments.') . ' ';
+		if($rootUrl != '/') {
+			$add->description .= sprintf(
+				$this->_('Paths are relative to site root so do NOT include the %s subdirectory at the beginning.'), 
+				$rootUrl
+			);
+		}
+		$add->collapsed = Inputfield::collapsedYes;
+		$add->icon = 'plus';
+		$add->addClass('InputfieldIsSecondary', 'wrapClass');
+		if($multilang) {
+			$add->notes = $this->_('To specify a language for the redirect, enter path/URL on line prefixed with language name:');
+			foreach($languages->findNonDefault() as $language) {
+				$add->notes .= "\n`$language->name:" . 
+					sprintf($this->_('/your/%s/url/'), $language->name) . "` " . // /your/[language-name]/url/
+					sprintf($this->_('(for %s)'), $language->get('title|name')); // (for [language-title])
+			}
+		}
+
+		if($this->isPost) {
+			$add->processInput($input->post);
+			if($add->val()) {
+				foreach(explode("\n", $add->val()) as $path) {
+					if(strpos($path, ':')) {
+						list($langName, $path) = explode(':', $path, 2);
+						$language = $languages->get($sanitizer->pageName($langName));
+						if(!$language || !$language->id) $language = null;
+					} else {
+						$language = null;
+					}
+					$path = $sanitizer->pagePathName($path);
+					if(!strlen($path)) continue; 
+					if($history->addPathHistory($this->page, $path, $language)) {
+						$this->message(sprintf(
+							$this->_('Added redirect: %s'), 
+							$path
+						));
+					} else {
+						$this->warning(sprintf(
+							$this->_('Unable to add redirect %s because it appears to conflict with another path'), 
+							$path
+						));
+					}
+				}
+			}
+		} else {
+			$field->val($table->render());
+			$field->add($add);
+		}
+
+		return $field;
+	}
+
+	/**
+	 * Build the Settings > Info fieldset on the Page Edit form
+	 * 
+	 * @return InputfieldMarkup
+	 *
+	 */
+	protected function buildFormInfo() {
+		$page = $this->page; 
+		$dateFormat = $this->config->dateFormat;
+		$unknown = '[?]';
+		/** @var InputfieldMarkup $field */
+		$field = $this->modules->get("InputfieldMarkup"); 
+		$createdName = $page->createdUser ? $page->createdUser->name : ''; 
+		$modifiedName = $page->modifiedUser ? $page->modifiedUser->name : ''; 
+		if(empty($createdName)) $createdName = $unknown;
+		if(empty($modifiedName)) $modifiedName = $unknown;
+		if($this->user->isSuperuser()) {
+			$url = $this->config->urls->admin . 'access/users/edit/?id=';
+			if($createdName != $unknown && $page->createdUser instanceof User) $createdName = "<a href='$url{$page->createdUser->id}'>$createdName</a>";
+			if($modifiedName != $unknown && $page->modifiedUser instanceof User) $modifiedName = "<a href='$url{$page->modifiedUser->id}'>$modifiedName</a>";
+		}
+		$lowestDate = strtotime('1974-10-10');
+		$createdDate = $page->created > $lowestDate ? date($dateFormat, $page->created) . " " . 
+			"<span class='detail'>(" . wireRelativeTimeStr($page->created) . ")</span>" : $unknown;
+		$modifiedDate = $page->modified > $lowestDate ? date($dateFormat, $page->modified) . " " . 
+			"<span class='detail'>(" . wireRelativeTimeStr($page->modified) . ")</span>" : $unknown; 
+		$publishedDate = $page->published > $lowestDate ? date($dateFormat, $page->published) . " " . 
+			"<span class='detail'>(" . wireRelativeTimeStr($page->published) . ")</span>" : $unknown;
+
+		$info =	"\n<p>" . 
+				sprintf($this->_('Created by %1$s on %2$s'), $createdName, $createdDate) . "<br />" . // Settings: created user/date information line
+				sprintf($this->_('Last modified by %1$s on %2$s'), $modifiedName, $modifiedDate) . "<br />" . // Settings: modified user/date information line
+				sprintf($this->_('Published on %s'), $publishedDate) . // Settings: published information line
+				"</p>"; 
+		
+		$field->attr('id+name', 'ProcessPageEditInfo'); 
+		$field->label = $this->_('Info'); // Settings: Info field label
+		$field->icon = 'info-circle';
+		if($this->config->advanced) $field->notes = "Object type: " . $page->className();
+		$field->value = $info; 
+		
+		return $field; 
+	}
+
+	/**
+	 * Build the Settings > Status fieldset on the Page Edit form
+	 * 
+	 * @return InputfieldCheckboxes
+	 *
+	 */
+	protected function buildFormStatus() {
+		
+		$status = (int) $this->page->status;
+		$statuses = array(); 
+		$debug = $this->config->debug;
+		$advanced = $this->config->advanced;
+		
+		/** @var InputfieldCheckboxes $field */
+		$field = $this->modules->get('InputfieldCheckboxes');
+		$field->attr('name', 'status');
+		$field->icon = 'sliders';
+
+		if(!$this->page->template->noUnpublish && $this->page->publishable()) {
+			$statuses[Page::statusUnpublished] = $this->_('Unpublished: Not visible on site'); // Settings: Unpublished status checkbox label
+		}
+		if($this->user->hasPermission('page-hide', $this->page)) {
+			$statuses[Page::statusHidden] = $this->_('Hidden: Excluded from lists and searches'); // Settings: Hidden status checkbox label
+		}
+		if($this->user->hasPermission('page-lock', $this->page)) {
+			$statuses[Page::statusLocked] = $this->_('Locked: Not editable'); // Settings: Locked status checkbox label
+		}
+			
+		if($this->user->isSuperuser()) {
+			$statuses[Page::statusUnique] = sprintf($this->_('Unique: Require page name “%s” to be globally unique'), $this->page->name) . 
+				($this->wire('languages') ?  ' ' . $this->_('(in default language only)') : '');
+			if($advanced) {
+				$statuses[Page::statusSystemID] = "System: Non-deleteable and locked ID (status not removeable via API)";
+				$statuses[Page::statusSystem] = "System: Non-deleteable and locked ID, name, template, parent (status not removeable via API)";
+			}
+		}
+
+		$value = array();
+		
+		foreach($statuses as $s => $label) {
+			if($s & $status) $value[] = $s;
+			if(strpos($label, ': ')) $label = str_replace(': ', ': [span.detail]', $label) . '[/span]';
+			$field->addOption($s, $label);
+		}
+		
+		$field->attr('value', $value); 
+		$field->label = $this->_('Status'); // Settings: Status field label
+		
+		if($debug) $field->notes = $this->page->statusStr;
+
+		return $field; 
+	}
+
+	/**
+	 * Build the 'delete' tab on the Page Edit form
+	 * 
+	 * @return InputfieldWrapper
+	 *
+	 */
+	protected function ___buildFormDelete() {
+
+		$wrapper = $this->wire(new InputfieldWrapper());
+		$deleteable = $this->page->deleteable();
+		$trashable = $deleteable || $this->page->trashable();
+		if(!$trashable) return $wrapper;
+		
+		$id = $this->className() . 'Delete';
+		$deleteLabel = $this->_('Delete'); // Tab Label: Delete
+		$wrapper->attr('id', $id); 
+		$wrapper->attr('title', $deleteLabel); 
+		$this->addTab($id, $deleteLabel);
+
+		if($trashable) {
+
+			/** @var InputfieldCheckbox $field */
+			$field = $this->modules->get('InputfieldCheckbox');
+			$field->attr('id+name', 'delete_page'); 
+			$field->attr('value', $this->page->id); 
+
+			if($deleteable && ($this->isTrash || $this->page->template->noTrash)) {
+				$deleteLabel = $this->_('Delete Permanently'); // Delete permanently checkbox label
+			} else {
+				$deleteLabel = $this->_('Move to Trash'); // Move to trash checkbox label
+			}
+			$field->icon = 'trash-o';
+			$field->label = $deleteLabel;
+			$field->description = $this->_('Check the box to confirm that you want to do this.'); // Delete page confirmation instruction
+			$field->label2 = $this->_('Confirm'); 
+			$wrapper->append($field); 
+		}
+
+		if(count($wrapper->children())) {
+			$field = $this->modules->get('InputfieldButton');
+			$field->attr('id+name', 'submit_delete'); 
+			$field->value = $deleteLabel;
+			$wrapper->append($field);
+		} else {
+			$wrapper->description = $this->_('This page may not be deleted at this time'); // Page can't be deleted message
+		}
+
+		return $wrapper;
+	}
+
+	/**
+	 * Build the 'restore' tab shown for pages in the trash
+	 * 
+	 * Returns boolean false if restore not possible. 
+	 * 
+	 * @return InputfieldWrapper|bool
+	 * 
+	 */
+	protected function buildFormRestore() {
+	
+		if(!$this->page->isTrash()) return false;
+		if(!$this->page->restorable()) return false;
+		$info = $this->wire('pages')->trasher()->getRestoreInfo($this->page);
+		if(!$info['restorable']) return false;
+		
+		/** @var InputfieldWrapper $wrapper */
+		$wrapper = $this->wire(new InputfieldWrapper());
+		$id = $this->className() . 'Restore';
+		$restoreLabel = $this->_('Restore'); // Tab Label: Restore
+		$restoreLabel2 = $this->_('Move out of trash and restore to original location'); 
+		$wrapper->attr('id', $id);
+		$wrapper->attr('title', $restoreLabel);
+		$this->addTab($id, $restoreLabel);
+		/** @var Page $parent */
+		$parent = $info['parent'];
+		$newPath = $parent->path() . $info['name'] . '/';
+		
+		/** @var InputfieldCheckbox $field */
+		$field = $this->modules->get('InputfieldCheckbox');
+		$field->attr('id+name', 'restore_page');
+		$field->attr('value', $this->page->id);
+
+		$field->icon = 'trash-o';
+		$field->label = $restoreLabel2;
+		$field->description = $this->_('Check the box to confirm that you want to restore this page.'); // Restore page confirmation instruction
+		$field->notes = sprintf($this->_('The page will be restored to: **%s**.'), $newPath);
+		if($info['namePrevious']) $field->notes .= ' ' . 
+			sprintf($this->_('Original name will be adjusted from **%1$s** to **%2$s** to be unique.'), $info['namePrevious'], $info['name']);
+		$field->label2 = $restoreLabel;
+		$wrapper->append($field);
+
+		return $wrapper;
+	}
+
+	/**
+	 * Build the 'view' tab on the Page Edit form
+	 * 
+	 * @param string $url
+	 *
+	 */ 
+	protected function ___buildFormView($url) {
+		
+		$label = $this->_('View'); // Tab Label: View
+		$id = $this->className() . 'View';
+		
+		if((!empty($this->configSettings['viewNew'])) || $this->viewAction == 'new') {
+			$target = '_blank';
+		} else {
+			$target = '_top';
+		}
+		
+		$a = 
+			"<a id='_ProcessPageEditView' target='$target' href='$url' data-action='$this->viewAction'>$label" . 
+			"<span id='_ProcessPageEditViewDropdownToggle' class='pw-dropdown-toggle' data-pw-dropdown='#_ProcessPageEditViewDropdown'>" . 
+			"<i class='fa fa-angle-down'></i></span></a>";
+		
+		$this->addTab($id, $a);
+	}
+
+	/**
+	 * Build the Settings > Roles fieldset on the Page Edit form 
+	 * 
+	 * @return InputfieldMarkup
+	 *
+	 */
+	protected function ___buildFormRoles() {
+
+		/** @var InputfieldMarkup $field */
+		$field = $this->modules->get("InputfieldMarkup"); 
+		$field->label = $this->_('Who can access this page?'); // Roles information field label
+		$field->icon = 'users';
+		$field->attr('id+name', 'ProcessPageEditRoles');
+		$field->collapsed = Inputfield::collapsedYesAjax;
+
+		/** @var MarkupAdminDataTable $table */
+		$table = $this->modules->get("MarkupAdminDataTable"); 
+		
+		if($this->input->get('renderInputfieldAjax') == 'ProcessPageEditRoles') {
+			$roles = $this->page->getAccessRoles();
+			$accessTemplate = $this->page->getAccessTemplate('edit');
+			if($accessTemplate) {
+				$editRoles = $accessTemplate->editRoles;
+				$addRoles = $accessTemplate->addRoles;
+				$createRoles = $accessTemplate->createRoles;
+			} else {
+				$editRoles = array();
+				$addRoles = array();
+				$createRoles = array();
+			}
+
+			$table->headerRow(array(
+				$this->_('Role'), // Roles table column header: Role
+				$this->_('What they can do') // Roles table colum header: what they can do
+			));
+			$table->setEncodeEntities(false);
+			$addLabel = 'add';
+
+			if(count($roles)) {
+
+				$hasPublishPermission = $this->wire('permissions')->has('page-publish');
+
+				foreach($roles as $role) {
+					
+					$permissions = array();
+					$roleName = $role->name;
+					if($roleName == 'guest') $roleName .= " " . $this->_('(everyone)'); // Identifies who guest is (everyone)
+					$permissions["page-view"] = 'view';
+
+					$checkEditable = true;
+					if($hasPublishPermission && !$this->page->hasStatus(Page::statusUnpublished) 
+						&& !$role->hasPermission('page-publish', $this->page)) {
+						$checkEditable = false;
+					}
+
+					$key = array_search($role->id, $addRoles);
+					if($key !== false && $role->hasPermission('page-add', $this->page)) {
+						$permissions["page-add"] = 'add';
+						unset($addRoles[$key]);
+					}
+					
+					$editable = $role->hasPermission('page-edit', $this->page) && in_array($role->id, $editRoles);
+					
+					if($checkEditable && $editable) {
+						
+						foreach($role->permissions as $permission) {
+							if(strpos($permission->name, 'page-') !== 0) continue;
+							if(in_array($permission->name, array('page-view', 'page-publish', 'page-create', 'page-add'))) continue;
+							if(!$role->hasPermission($permission, $this->page)) continue;
+							$permissions[$permission->name] = str_replace('page-', '', $permission->name); // only page-context permissions
+						}
+						
+						if($hasPublishPermission && $role->hasPermission('page-publish', $this->page)) {
+							$permissions["page-publish"] = 'publish';
+						}
+					}
+					
+					if(in_array($role->id, $createRoles) && $editable) {
+						$permissions["page-create"] = 'create';
+					}
+					
+					$table->row(array($roleName, implode(', ', $permissions)));
+				}
+
+			}
+
+			if(count($addRoles)) {
+				foreach($addRoles as $roleID) {
+					$role = $this->wire('roles')->get($roleID);
+					if(!$role->id) continue;
+					if(!$role->hasPermission("page-add", $this->page)) continue;
+					$table->row(array($role->name, $addLabel));
+				}
+			}
+
+			$table->row(array('superuser', $this->_x('all', 'all permissions')));
+			$field->value = $table->render();
+		}
+
+		$accessParent = $this->page->getAccessParent();
+		if($accessParent === $this->page) {
+			$field->notes = sprintf($this->_('Access is defined with this page\'s template: %s'), $accessParent->template);	// Where access is defined: with this page's template
+		} else {
+			$field->notes = sprintf($this->_('Access is inherited from page "%1$s" and defined with template: %2$s'), $accessParent->path, $accessParent->template); // Where access is defined: inherited from a parent
+		}
+
+		return $field;
+	}
+
+	/***********************************************************************************************************************
+	 * FORM PROCESSING
+	 * 
+	 */
+	
+	/**
+	 * Save a submitted Page Edit form
+	 *
+	 */
+	protected function processSave() {
+
+		if($this->page->hasStatus(Page::statusLocked)) {
+			if(!$this->user->hasPermission('page-lock', $this->page) || (!empty($_POST['status']) && in_array(Page::statusLocked, $_POST['status']))) {
+				$this->error($this->noticeLocked);
+				$this->processSaveRedirect($this->redirectUrl);
+				return;
+			}
+		}
+		
+		$formErrors = 0;
+
+		// remove temporary status that may have been assigned by ProcessPageAdd quick add mode
+		if($this->page->hasStatus(Page::statusTemp)) $this->page->removeStatus(Page::statusTemp);
+
+		if($this->input->post('submit_delete')) {
+
+			if($this->input->post('delete_page')) $this->deletePage();
+
+		} else {
+
+			$this->processInput($this->form);
+			$changes = array_unique($this->page->getChanges());
+			$numChanges = count($changes);
+			if($numChanges) {
+				$this->changes = $changes;
+				$this->message(sprintf($this->_('Change: %s'), implode(', ', $changes)), Notice::debug); // Message shown for each changed field
+			}
+
+			foreach($this->notices as $notice) {
+				if($notice instanceof NoticeError) $formErrors++;
+			}
+		
+			// if any Inputfields threw errors during processing, give the page a 'flagged' status
+			// so that it can later be identified the page may be missing something
+			if($formErrors && count($this->form->getErrors())) {
+				// add flagged status when form had errors
+				$this->page->addStatus(Page::statusFlagged);
+			} else if($this->page->hasStatus(Page::statusFlagged)) {
+				// if no errors, remove incomplete status
+				$this->page->removeStatus(Page::statusFlagged);
+				$this->message($this->_('Removed flagged status because no errors reported during save'));
+			}
+
+			$isUnpublished = $this->page->hasStatus(Page::statusUnpublished);
+
+			if($this->input->post('submit_publish') || $this->input->post('submit_save')) {
+
+				try {
+					$options = array();
+					$name = '';
+
+					if($this->page->isChanged('name')) {
+						if(!strlen($this->page->name) && $this->page->namePrevious) {
+							// blank page name when there was a previous name, set back the previous
+							// example instance: when template.childNameFormat in use and template.noSettings active
+							$this->page->name = $this->page->namePrevious;
+						} else {
+							$name = $this->page->name;
+						}
+						$options['adjustName'] = true;
+					}
+
+					$numChanges = $numChanges > 0 ? ' (' . sprintf($this->_n('%d change', '%d changes', $numChanges) . ')', $numChanges) : '';
+					if($this->input->post('submit_publish') && $isUnpublished && $this->page->publishable() && !$formErrors) {
+						$this->page->removeStatus(Page::statusUnpublished);
+						$message = sprintf($this->_('Published Page: %s'), '{path}') . $numChanges; // Message shown when page is published
+					} else {
+						$message = sprintf($this->_('Saved Page: %s'), '{path}') . $numChanges; // Message shown when page is saved
+						if($isUnpublished && $formErrors && $this->input->post('submit_publish')) {
+							$message .= ' - ' . $this->_('Cannot be published until errors are corrected');
+						}
+					}
+				
+					$restored = false;
+					if($this->input->post('restore_page') && $this->page->isTrash() && $this->page->restorable()) {
+						if($formErrors) {
+							$this->warning($this->_('Page cannot be restored while errors are present'));
+						} else if($this->wire('pages')->restore($this->page, false)) {
+							$message = sprintf($this->_('Restored Page: %s'), '{path}') . $numChanges; 
+							$restored = true;
+						} else {
+							$this->warning($this->_('Error restoring page'));
+						}
+					}
+
+					$this->wire('pages')->save($this->page, $options);
+					if($restored) $this->wire('pages')->restored($this->page);
+					$message = str_replace('{path}', $this->page->path, $message);
+					$this->message($message);
+
+					if($name && $name != $this->page->name) {
+						$this->warning(sprintf($this->_('Changed page URL name to "%s" because requested name was already taken.'), $this->page->name));
+					}
+
+				} catch(\Exception $e) {
+					$show = true;
+					$message = $e->getMessage();
+					foreach($this->errors('all') as $error) {
+						if(strpos($error, $message) === false) continue;
+						$show = false;
+						break;
+					}
+					if($show) $this->error($message);
+				}
+			}
+		}
+
+		if($this->redirectUrl) {
+			// non-default redirectUrl overrides after_submit_action
+		} else if($formErrors) {
+			// if there were errors to attend to, stay where we are
+		} else {
+			// after submit action
+			$submitAction = $this->input->post('_after_submit_action');
+			if($submitAction) $this->processSubmitAction($submitAction);
+		}
+
+		$this->processSaveRedirect($this->getRedirectUrl());
+	}
+
+	/**
+	 * Process the given submit action value
+	 * 
+	 * #pw-hooker
+	 * 
+	 * @param string $value Value of selected action, i.e. 'exit', 'view', 'add', next', etc.
+	 * @return bool Returns true if value was acted upon or false if not
+	 * @since 3.0.142
+	 * @see ___getSubmitActions(), setRedirectUrl()
+	 * 
+	 */
+	protected function ___processSubmitAction($value) {
+		
+		if($value == 'exit') {
+			$this->setRedirectUrl('../');
+			
+		} else if($value == 'view') {
+			$this->setRedirectUrl($this->getViewUrl());
+			
+		} else if($value == 'add') {
+			$this->setRedirectUrl("../add/?parent_id={$this->page->parent_id}");
+			
+		} else if($value == 'next') {
+			$nextPage = $this->page->next("include=unpublished");
+			if($nextPage->id) {
+				if(!$nextPage->editable()) {
+					$nextPage = $this->page->next("include=hidden");
+					if($nextPage->id && !$nextPage->editable()) {
+						$nextPage = $this->page->next();
+						if($nextPage->id && !$nextPage->editable()) $nextPage = new NullPage();
+					}
+				}
+			}
+			if($nextPage->id) {
+				$this->setRedirectUrl($this->getEditUrl(array('id' => $nextPage->id)));
+			} else {
+				$this->warning($this->_('There is no editable next page to edit.'));
+			}
+			
+		} else {
+			return false;
+		}
+		
+		return true;
+	}
+
+	/**
+	 * Perform an after save redirect
+	 *
+	 * @param string $redirectUrl
+	 *
+	 */
+	protected function ___processSaveRedirect($redirectUrl = '') {
+		if($redirectUrl) {
+			$c = substr($redirectUrl, 0, 1);
+			$admin = $c === '.' || $c === '?' || strpos($redirectUrl, $this->config->urls->admin) === 0; 
+			if($admin) {
+				$redirectUrl .= (strpos($redirectUrl, '?') === false ? '?' : '&') . 's=1';
+			}
+		} else {
+			$admin = true;
+			$redirectUrl = $this->getEditUrl(array('s' => 1)); 
+		}
+		if($admin) {
+			$redirectUrl .= "&c=" . count($this->changes);
+			if(count($this->fields) && count($this->changes)) {
+				$redirectUrl .= "&changes=" . implode(',', $this->changes);
+			}
+		}
+		$this->setRedirectUrl($redirectUrl);
+		$this->session->redirect($this->getRedirectUrl());
+	}
+
+	/**
+	 * Process the input from a submitted Page Edit form, delegating to other methods where appropriate
+	 * 
+	 * @param InputfieldWrapper $form
+	 * @param int $level
+	 * @param Inputfield $formRoot
+ 	 *
+	 */
+	protected function ___processInput(InputfieldWrapper $form, $level = 0, $formRoot = null) {
+
+		static $skipFields = array(
+			'sortfield_reverse', 
+			'submit_publish', 
+			'submit_save',
+			'delete_page',
+			);
+
+		if(!$level) {
+			$form->processInput($this->input->post);
+			$formRoot = $form;
+			$this->page->setQuietly('_forceAddStatus', 0);
+		}
+
+		$languages = $this->wire('languages'); 
+		$errorAction = (int) $this->page->template->errorAction;
+
+		foreach($form as $inputfield) {
+			
+			/** @var Inputfield|InputfieldWrapper $inputfield */
+
+			$name = $inputfield->attr('name'); 
+			if($name == '_pw_page_name') $name = 'name';
+			if(in_array($name, $skipFields)) continue; 
+			
+			if(!$this->page->editable($name, false)) {
+				$this->page->untrackChange($name); // just in case
+				continue;
+			}
+			
+			if($name == 'sortfield' && $this->useChildren && $form->isProcessable($inputfield->parent->parent)) {
+				$this->processInputSortfield($inputfield) ;
+				continue;
+			}
+
+			if($this->useSettings) { 
+
+				if($name == 'template') { 
+					$this->processInputTemplate($inputfield); 
+					continue; 
+
+				} else if($name == 'created_users_id') {
+					$this->processInputUser($inputfield);
+					continue;
+					
+				} else if($name == 'parent_id' && count($this->predefinedParents)) {
+					if(!$this->predefinedParents->has("id=$inputfield->value")) {
+						$this->error("Parent $inputfield->value is not allowed for $this->page"); 
+						continue; 
+					}
+				}
+
+				if($name == 'status' && $this->processInputStatus($inputfield)) continue; 
+			}
+			
+			if($this->processInputErrorAction($this->page, $inputfield, $name, $errorAction)) continue;
+
+			if($name && $inputfield->isChanged()) {
+				if($languages && $inputfield->getSetting('useLanguages')) {
+					$v = $this->page->get($name); 
+					if(is_object($v)) {
+						$v->setFromInputfield($inputfield); 
+						$this->page->set($name, $v); 
+						$this->page->trackChange($name); 
+					} else {
+						$this->page->set($name, $inputfield->value); 
+					}
+				} else { 
+					$this->page->set($name, $inputfield->value);
+				}
+			}
+
+			if($inputfield instanceof InputfieldWrapper && count($inputfield->getChildren())) {
+				$this->processInput($inputfield, $level + 1, $formRoot);
+			}
+		}
+	
+		if(!$level) {
+			$forceAddStatus = $this->page->get('_forceAddStatus');
+			if($forceAddStatus && !$this->page->hasStatus($forceAddStatus)) {
+				$this->page->addStatus($forceAddStatus);
+			}
+		}
+	}
+
+	/**
+	 * Process required error actions as configured with page’s template
+	 * 
+	 * @param Page $page
+	 * @param Inputfield|InputfieldRepeater $inputfield Inputfield that has already had its processInput() method called.
+	 * @param string $name Name of field that we are checking.
+	 * @param null|int $errorAction Error action from $page->template->errorAction, or omit to auto-detect. 
+	 * @return bool Returns true if field $name should be skipped over during processing, or false if not
+	 * 
+	 */
+	public function processInputErrorAction(Page $page, Inputfield $inputfield, $name, $errorAction = null) {
+		
+		if(empty($name)) return false;
+		if($errorAction === null) $errorAction = (int) $page->template->get('errorAction');
+		if(!$errorAction) return false;
+		if($page->isUnpublished()) return false;
+	
+		$isRequired = $inputfield->getSetting('required');
+		$isRepeater = strpos($inputfield->className(), 'Repeater') > 0 && wireInstanceOf($inputfield, 'InputfieldRepeater', false);
+
+		if(!$isRepeater && !$isRequired) return false;
+		if($inputfield->getSetting('requiredSkipped')) return false;
+		
+		if($isRepeater) {
+			if($inputfield->numRequiredEmpty() > 0) {
+				// repeater has required fields that are empty
+			} else if($isRequired && $inputfield->numPublished() < 1) {
+				// repeater is required and has no published items
+			} else {
+				// repeater is okay for now
+				return false;
+			}
+		} else if(!$inputfield->isEmpty()) {
+			return false;
+		}
+		
+		if($errorAction === 1) {
+			// restore existing value by skipping processing of empty when required
+			$value = $inputfield->attr('value');
+			if($value instanceof Wire) $value->resetTrackChanges();
+			if($page->getField($name)) $page->remove($name); // force fresh copy to reload
+			$previousValue = $page->get($name);
+			$page->untrackChange($name);
+			if($previousValue) {
+				// we should have a previous value to restore
+				if(WireArray::iterable($previousValue) && !count($previousValue)) {
+					// previous value still empty
+				} else {
+					// previous value restored by simply not setting new value to $page
+					$inputfield->error($this->_('Restored previous value'));
+					return true;
+				}
+			}
+
+		} else if($errorAction === 2 && $page->publishable() && $page->id > 1) {
+			// unpublish page missing required value
+			$page->setQuietly('_forceAddStatus', Page::statusUnpublished);
+			$label = $inputfield->getSetting('label');
+			if(empty($label)) $label = $inputfield->attr('name');
+			$inputfield->error(sprintf($this->_('Page unpublished because field "%s" is required'), $label));
+			return false;
+		}
+		
+		return false;
+	}
+
+	/**
+	 * Check to see if the page's created user has changed and make sure it's valid
+	 * 
+	 * @param Inputfield $inputfield
+	 *
+	 */
+	protected function processInputUser(Inputfield $inputfield) {
+		if(!$this->user->isSuperuser() || !$this->page->id || !$this->page->template->allowChangeUser) return;
+		$userID = (int) $inputfield->attr('value');
+		if(!$userID) return;
+		if($userID == $this->page->created_users_id) return; // no change
+		$user = $this->pages->get($userID); 
+		if(!in_array($user->template->id, $this->config->userTemplateIDs)) return; // invalid user template
+		if(!in_array($user->parent_id, $this->config->usersPageIDs)) return; // invalid user parent
+		$this->page->created_users_id = $userID; 
+		$this->page->trackChange('created_users_id');
+	}
+
+	/**
+	 * Check to see if the page's template has changed and setup a redirect to a confirmation form if it has
+	 * 
+	 * @param Inputfield $inputfield
+	 * @return bool
+	 * @throws WireException
+	 *
+	 */
+	protected function processInputTemplate(Inputfield $inputfield) {
+		if($this->page->template->noChangeTemplate) return true; 
+		$templateID = (int) $inputfield->attr('value');
+		if(!$templateID) return true; 
+		$template = $this->wire('templates')->get((int) $inputfield->attr('value')); 
+		if(!$template) return true; // invalid template
+		if($template->id == $this->page->template->id) return true; // no change
+		if(!$this->isAllowedTemplate($template)) {
+			throw new WireException(sprintf($this->_("Template '%s' is not allowed"), $template)); // Selected template is not allowed
+		}
+
+		// template has changed, set a redirect URL which will confirm the change
+		$this->setRedirectUrl("template?id={$this->page->id}&template={$template->id}");
+		return true; 
+	}
+
+	/**
+	 * Process the submitted 'status' field and account for the bitwise logic present
+	 * 
+	 * @param Inputfield $inputfield
+	 * @return bool
+	 *
+	 */
+	protected function processInputStatus(Inputfield $inputfield) {
+
+		$status = $inputfield->value; 
+		$value = $this->page->status; 
+
+		if(!is_array($status)) $status = array();
+
+		$statusFlags = array();
+		if($this->user->hasPermission('page-hide', $this->page)) $statusFlags[] = Page::statusHidden; 
+		if($this->page->publishable()) $statusFlags[] = Page::statusUnpublished; 
+		if($this->user->hasPermission('page-lock', $this->page)) $statusFlags[] = Page::statusLocked;
+
+		if($this->user->isSuperuser()) {
+			$statusFlags[] = Page::statusUnique;
+			if($this->config->advanced) {
+				$statusFlags[] = Page::statusSystemID;
+				$statusFlags[] = Page::statusSystem;
+			}
+		}
+
+		foreach($statusFlags as $flag) {
+			if(in_array($flag, $status)) {
+				if(!($value & $flag)) $value = $value | $flag; 
+
+			} else if($value & $flag) {
+				$value = $value & ~$flag; 
+			}
+		}
+
+		$this->page->status = $value; 
+		return true; 
+	}
+
+	/**
+	 * Process the Children > Sortfield input
+	 * 
+	 * @param Inputfield $inputfield
+	 * @return bool
+	 *
+	 * 
+	 */
+	protected function processInputSortfield(Inputfield $inputfield) {
+		if(!$this->user->hasPermission('page-sort', $this->page)) return true; 
+		$sortfield = $this->sanitizer->name($inputfield->value); 
+		if($sortfield != 'sort' && !empty($_POST['sortfield_reverse'])) $sortfield = '-' . $sortfield; 
+		if(empty($sortfield)) $sortfield = 'sort';
+		$this->page->sortfield = $sortfield; 
+		return true; 
+	}
+
+	/**
+	 * Process a delete page request, moving the page to the trash if applicable
+	 * 
+	 * @return bool
+	 *
+	 */
+	protected function deletePage() {
+
+		if(!$this->page->trashable(true)) {
+			$this->error($this->_('This page is not deleteable')); 
+			return false; 
+		}
+
+		$afterDeleteRedirect = $this->config->urls->admin . "page/?open={$this->parent->id}";
+		if($this->wire('page')->process != $this->className()) $afterDeleteRedirect = "../";
+		$pagePath = $this->page->path();
+
+		if(($this->isTrash || $this->page->template->noTrash) && $this->page->deleteable()) {
+			$this->session->message(sprintf($this->_('Deleted page: %s'), $pagePath)); // Page deleted message
+			$this->pages->delete($this->page, true); 
+			$this->session->redirect($afterDeleteRedirect); 
+
+		} else if($this->pages->trash($this->page)) {
+			$this->session->message(sprintf($this->_('Moved page to trash: %s'), $pagePath)); // Page moved to trash message
+			$this->session->redirect($afterDeleteRedirect); 
+			
+		} else { 
+			$this->error($this->_('Unable to move page to trash')); // Page can't be moved to the trash error
+			return false;
+		}
+		
+		return true;
+	}
+	
+	/**
+	 * Save only the fields posted via ajax
+	 *
+	 * - Field name must be included in server header HTTP_X_FIELDNAME or directly in the POST vars.
+	 * - Note that fields that would be not present in POST vars (like a checkbox) are only supported
+	 *   by the HTTP_X_FIELDNAME version.
+	 * - Works for custom fields only at present.
+	 *
+	 * @param Page $page
+	 * @throws WireException
+	 *
+	 */
+	protected function ___ajaxSave(Page $page) {
+
+		if($this->config->demo) throw new WireException("Ajax save is disabled in demo mode");
+		if($page->hasStatus(Page::statusLocked)) throw new WireException($this->noticeLocked);
+		if(!$this->ajaxEditable($page)) throw new WirePermissionException($this->noticeNoAccess);
+		$this->session->CSRF->validate(); // throws exception when invalid
+
+		$form = $this->wire(new InputfieldWrapper());
+		$form->useDependencies = false;
+		$keys = array();
+
+		if(isset($_SERVER['HTTP_X_FIELDNAME'])) {
+			$keys[] = $this->sanitizer->fieldName($_SERVER['HTTP_X_FIELDNAME']);
+
+		} else {
+			foreach($this->input->post as $key => $unused) {
+				if($key == 'id') continue;
+				$keys[] = $this->sanitizer->fieldName($key);
+			}
+		}
+
+		foreach($keys as $key) {
+
+			if(!$field = $page->template->fieldgroup->getFieldContext($key)) continue;
+			if(!$this->ajaxEditable($page, $key)) continue;
+			if(!$inputfield = $field->getInputfield($page)) continue;
+
+			$inputfield->showIf = ''; // cancel showIf dependencies since other fields may not be present
+			$inputfield->name = $key;
+			$inputfield->value = $page->get($key);
+			$form->add($inputfield);
+		}
+
+		$form->processInput($this->input->post);
+		$page->setTrackChanges(true);
+		$numFields = 0;
+		$lastFieldName = null;
+		$languages = $this->wire('languages');
+
+		foreach($form->children() as $inputfield) {
+			$name = $inputfield->name;
+			if($languages && $inputfield->getSetting('useLanguages')) {
+				$v = $page->get($name);
+				if(is_object($v)) {
+					$v->setFromInputfield($inputfield);
+					$page->set($name, $v);
+					$page->trackChange($name);
+				} else {
+					$page->set($name, $inputfield->value);
+				}
+			} else {
+				$page->set($name, $inputfield->value);
+			}
+			$numFields++;
+			$lastFieldName = $inputfield->name;
+		}
+
+		if($page->isChanged()) {
+			if($numFields === 1) {
+				$page->save((string)$lastFieldName);
+				$this->message("AJAX Saved page '{$page->id}' field '$lastFieldName'");
+			} else {
+				$page->save();
+				$this->message("AJAX Saved page '{$page->id}' multiple fields");
+			}
+		} else {
+			$this->message("AJAX Page not saved (no changes)");
+		}
+	}
+
+
+	/***************************************************************************************************************
+	 * OTHER ACTIONS
+	 * 
+	 */
+
+	/**
+	 * Execute a template change for a page, building an info + confirmation form (handler for /template/ action)
+	 * 
+	 * @return string
+	 * @throws WireException
+	 *
+	 */
+	public function ___executeTemplate() {
+		
+		if(!$this->useSettings || !$this->user->hasPermission('page-template', $this->page)) {
+			throw new WireException("You don't have permission to change the template on this page.");
+		}
+		
+		$templateID = (int) $this->input->get('template');
+		if($templateID < 1) throw new WireException("This method requires a 'template' get var"); 
+		$template = $this->templates->get($templateID); 
+		if(!$template) throw new WireException("Unknown template"); 
+
+		if(!$this->isAllowedTemplate($template->id)) {
+			throw new WireException("That template is not allowed");
+		}
+		
+		$labelConfirm = $this->_('Confirm template change'); // Change template confirmation subhead
+		$labelAction = sprintf($this->_('Change template from "%1$s" to "%2$s"'), $this->page->template, $template); // Change template A to B headline
+		
+		$this->headline($labelConfirm);
+		if($this->requestModal) $this->error("$labelConfirm – $labelAction"); // force modal open
+
+		/** @var InputfieldForm $form */
+		$form = $this->modules->get("InputfieldForm"); 
+		$form->attr('action', 'saveTemplate'); 
+		$form->attr('method', 'post'); 
+		$form->description = $labelAction;
+
+		/** @var InputfieldMarkup $f */
+		$f = $this->modules->get("InputfieldMarkup"); 	
+		$f->icon = 'cubes';
+		$f->label = $labelConfirm;
+		$list = array();
+		foreach($this->page->template->fieldgroup as $field) {
+			if(!$template->fieldgroup->has($field)) {
+				$list[] = $this->sanitizer->entities($field->getLabel()) . " ($field->name)";
+			}
+		}
+		if(!$list) $this->executeSaveTemplate($template); 
+		$f->description = $this->_('Warning, changing the template will delete the following fields:'); // Headline that precedes list of fields that will be deleted as a result of template change
+		$icon = "<i class='fa fa-times-circle'></i> ";
+		$f->attr('value', "<p class='ui-state-error-text'>$icon" . implode("<br />$icon", $list) . '</p>');
+		$form->append($f); 
+
+		/** @var InputfieldCheckbox $f */
+		$f = $this->modules->get("InputfieldCheckbox"); 
+		$f->attr('name', 'template'); 
+		$f->attr('value', $template->id); 
+		$f->label = $this->_('Are you sure?'); // Checkbox label to confirm they want to change template
+		$f->label2 = $labelAction;
+		$f->icon = 'warning';
+		$f->description = $this->_('Please confirm that you understand the above by clicking the checkbox below.'); // Checkbox description to confirm they want to change template
+		$form->append($f); 
+
+		/** @var InputfieldHidden $f */
+		$f = $this->modules->get("InputfieldHidden"); 
+		$f->attr('name', 'id'); 
+		$f->attr('value', $this->page->id); 
+		$form->append($f); 
+
+		/** @var InputfieldSubmit $f */
+		$f = $this->modules->get("InputfieldSubmit"); 
+		$form->append($f); 
+
+		$page = $this->masterPage ? $this->masterPage : $this->page; 
+		$this->wire('breadcrumbs')->add(new Breadcrumb("./?id={$page->id}", $page->get("title|name"))); 
+
+		return $form->render();
+	}
+
+	/**
+	 * Save a template change for a page (handler for /saveTemplate/ action)
+	 * 
+	 * @param Template $template
+	 * @throws WireException
+	 *
+	 */
+	public function ___executeSaveTemplate($template = null) {
+
+		if(!$this->useSettings || !$this->user->hasPermission('page-template', $this->page)) {
+			throw new WireException($this->_("You don't have permission to change the template on this page.")); // Error: user doesn't have permission to change template
+		}
+
+		if(!$this->page->template->noChangeTemplate) { 
+
+			if(!is_null($template) || (isset($_POST['template']) && ($template = $this->templates->get((int) $_POST['template'])))) {
+				try { 
+					if(!$this->isAllowedTemplate($template)) {
+						throw new WireException($this->_('That template is not allowed')); // Error: selected template is not allowed
+					}
+					$this->page->template = $template; 
+					$this->page->save();
+					$this->message(sprintf($this->_("Changed template to '%s'"), $template)); // Message: template was changed 
+				} catch(\Exception $e) {
+					$this->error($e->getMessage()); 
+				}
+			}
+		}
+
+		$this->session->redirect("./?id={$this->page->id}"); 
+	}
+
+	/**
+	 * Returns an array of templates that are allowed to be used here
+	 * 
+	 * @return array|Template[] Array of Template objects
+	 *
+	 */
+	protected function getAllowedTemplates() {
+
+		if(is_array($this->allowedTemplates)) return $this->allowedTemplates;
+
+		$templates = array();
+		$user = $this->user;
+		$isSuperuser = $user->isSuperuser();
+		$page = $this->masterPage ? $this->masterPage : $this->page;
+		$parent = $page->parent; 
+		$parentEditable = ($parent->id && $parent->editable());
+		/** @var Config $config */
+		$config = $this->wire('config');
+		$superAdvanced = $isSuperuser && $config->advanced; 
+
+		// current page template is assumed, otherwise we wouldn't be here
+		$templates[$page->template->id] = $page->template; 
+
+		// check if they even have permission to change it
+		if(!$user->hasPermission('page-template', $page) || $page->template->noChangeTemplate) {
+			$this->allowedTemplates = $templates;
+			return $templates;
+		}
+		
+		$allTemplates = count($this->predefinedTemplates) ? $this->predefinedTemplates : $this->wire('templates'); 
+
+		foreach($allTemplates as $template) {
+			/** @var Template $template */
+
+			if(isset($templates[$template->id])) continue; 
+
+			if($template->flags & Template::flagSystem) {
+				// if($template->name == 'user' && $parent->id != $this->config->usersPageID) continue;
+				if(in_array($template->id, $config->userTemplateIDs) && !in_array($parent->id, $config->usersPageIDs)) continue; 
+				if($template->name == 'role' && $parent->id != $config->rolesPageID) continue;
+				if($template->name == 'permission' && $parent->id != $config->permissionsPageID) continue;
+				if(strpos($template->name, 'repeater_') === 0 || strpos($template->name, 'fieldset_') === 0) continue;
+			}
+
+			if(count($template->parentTemplates) && $parent->id && !in_array($parent->template->id, $template->parentTemplates)) {
+				// this template specifies it can only be used with certain parents, and our parent's template isn't one of them
+				continue;
+			}	
+
+			if($parent->id && count($parent->template->childTemplates)) {
+				// the page's parent only allows certain templates for it's children
+				// if this isn't one of them, then continue; 
+				if(!in_array($template->id, $parent->template->childTemplates)) continue; 
+			}
+
+			if(!$superAdvanced && $template->noParents < 0 && $template->getNumPages() > 0) {
+				// only one of these is allowed to exist (noParents=-1)
+				continue;
+				
+			} else if($template->noParents > 0) {
+				// user can't change to a template that has been specified as no more instances allowed
+				continue;
+				
+			} else if($isSuperuser) {
+				$templates[$template->id] = $template;
+
+			} else if((!$template->useRoles && $parentEditable) || $user->hasPermission('page-edit', $template)) {
+				// determine if the template's assigned roles match up with the users's roles
+				// and that at least one of those roles has page-edit permission
+				if($user->hasPermission('page-create', $page)) { 
+					// user is allowed to create more pages of this type, so template may be used
+					$templates[$template->id] = $template; 
+				}
+			}
+		}
+
+		$this->allowedTemplates = $templates;
+		
+		return $templates; 
+	}
+
+	/**
+	 * Is the given template or template ID allowed here?
+	 * 
+	 * @param int|Template $id
+	 * @return bool
+	 *
+	 */
+	protected function isAllowedTemplate($id) {
+
+		// if $id is a template, then convert it to it's numeric ID
+		if(is_object($id) && $id instanceof Template) $id = $id->id; 
+
+		$id = (int) $id; 
+
+		// if the template is the same one already in place, of course it's allowed
+		if($id == $this->page->template->id) return true; 
+
+		// if we've made it this far, then get a list of templates that are allowed...
+		$templates = $this->getAllowedTemplates();
+
+		// ...and determine if the supplied template is in that list
+		return isset($templates[$id]); 
+	}
+
+	/**
+	 * Returns true if this page may be ajax saved (user has access), or false if not
+	 *
+	 * @param Page $page
+	 * @param string $fieldName Optional field name
+	 * @return bool
+	 *
+	 */
+	protected function ___ajaxEditable(Page $page, $fieldName = '') {
+		return $page->editable($fieldName);
+	}
+
+	/**
+	 * Return instance of the Page being edited (required by WirePageEditor interface)
+	 *
+	 * For Inputfields/Fieldtypes to use if they want to retrieve the editing page rather than the viewing page
+	 * 
+	 * @return Page
+	 *
+	 */
+	public function getPage() {
+		return $this->page; 
+	}
+
+	/**
+	 * Set the page being edited
+	 * 
+	 * @param Page $page
+	 * 
+	 */
+	public function setPage(Page $page) {
+		$this->page = $page; 
+	}
+
+	/**
+	 * Set the 'master' page
+	 * 
+	 * @param Page $page
+	 * @deprecated
+	 * 
+	 */
+	public function setMasterPage(Page $page) {
+		$this->masterPage = $page; 
+	}
+
+	/**
+	 * Get the 'master' page (if set)
+	 * 
+	 * @return null|Page
+	 * @deprecated
+	 * 
+	 */
+	public function getMasterPage() {
+		return $this->masterPage; 
+	}
+
+	/**
+	 * Set whether or not 'settings' tab should show
+	 * 
+	 * @param bool $useSettings
+	 * 
+	 */
+	public function setUseSettings($useSettings) {
+		$this->useSettings = (bool) $useSettings;
+	}
+
+	/**
+	 * Set predefined allowed templates
+	 * 
+	 * @param array|Template[] $templates
+	 * 
+	 */
+	
+	public function setPredefinedTemplates($templates) {
+		if(WireArray::iterable($templates)) $this->predefinedTemplates = $templates;
+	}
+
+	/**
+	 * Set predefined allowed parents
+	 * 
+	 * @param PageArray $parents
+	 * 
+	 */
+	public function setPredefinedParents(PageArray $parents) {
+		$this->predefinedParents = $parents; 
+	}
+
+	/**
+	 * Set the primary editor, if not ProcessPageEdit
+	 * 
+	 * @param WirePageEditor $editor
+	 * 
+	 */
+	public function setEditor(WirePageEditor $editor) {
+		$this->editor = $editor; 
+	}
+
+	/**
+	 * Called on save requests, sets the next redirect URL for the next request
+	 * 
+	 * @param string $url URL to redirect to
+	 * @since 3.0.142 Was protected in previous versions
+	 * 
+	 */
+	public function setRedirectUrl($url) {
+		$this->redirectUrl = $url;
+	}
+
+	/**
+	 * Get the current redirectUrl
+	 * 
+	 * @param array $extras Any extra parts you want to add as array of strings like "key=value"
+	 * @return string
+	 * @since 3.0.142 Was protected in previous versions
+	 * 
+	 */
+	public function getRedirectUrl(array $extras = array()) {
+		$url = $this->redirectUrl;
+		if(!strlen($url)) $url = "./?id=$this->id";
+		if($this->requestModal && strpos($url, 'modal=') === false) {
+			$extras[] = "modal=$this->requestModal";
+		}
+		if(strpos($url, '&field=') === false && strpos($url, '&fields=') === false) {
+			if(count($this->fields)) {
+				$names = array();
+				foreach($this->fields as $field) {
+					$names[] = "$field";
+				}
+				$extras[] = "fields=" . implode(',', $names);
+			} else if($this->field) {
+				$extras[] = "field=$this->field";
+			}
+		}
+		if(strpos($url, './') === 0 || (strpos($url, '/') !== 0 && strpos($url, '../') !== 0)) {
+			if($this->requestLanguage && strpos($url, 'language=') === false) {
+				$extras[] = "language=$this->requestLanguage";
+			}
+			if($this->requestContext && preg_match('/\bid=' . $this->id . '\b/', $url)) {
+				$extras[] = "context=$this->requestContext";
+			}
+		}
+		if(count($extras)) {
+			$url .= strpos($url, '?') === false ? "?" : "&"; 
+			$url .= implode('&', $extras);
+		}
+		return $url;
+	}
+
+	/**
+	 * Add a tab with HTML id attribute and label
+	 * 
+	 * Label may contain markup, and thus you should entity encode text labels as appropriate.
+	 * 
+	 * @param string $id
+	 * @param string $label
+	 * 
+	 */
+	public function addTab($id, $label) {
+		$this->tabs[$id] = $label; 
+	}
+
+	/**
+	 * Remove the tab with the given id
+	 * 
+	 * @param string $id
+	 * 
+	 */
+	public function removeTab($id) {
+		unset($this->tabs[$id]); 
+	}
+
+	/**
+	 * Returns associative array of tab ID => tab Label
+	 * 
+	 * @return array
+	 * 
+	 */
+	public function ___getTabs() {
+		return $this->tabs; 
+	}
+
+	/**
+	 * Get PageBookmarks array
+	 * 
+	 * @return PageBookmarks
+	 * 
+	 */
+	protected function getPageBookmarks() {
+		static $bookmarks = null;
+		if(is_null($bookmarks)) {
+			require_once(dirname(__FILE__) . '/PageBookmarks.php');
+			$bookmarks = $this->wire(new PageBookmarks($this));
+		}
+		return $bookmarks;
+	}
+
+	/**
+	 * navJSON action
+	 * 
+	 * @param array $options
+	 * @return string
+	 * @throws Wire404Exception
+	 * @throws WireException
+	 * 
+	 */
+	public function ___executeNavJSON(array $options = array()) {
+		$bookmarks = $this->getPageBookmarks();
+		$options['edit'] = $this->wire('config')->urls->admin . 'page/edit/?id={id}';
+		$options['defaultIcon'] = 'pencil';
+		$options = $bookmarks->initNavJSON($options);
+		return parent::___executeNavJSON($options); 
+	}
+
+	/**
+	 * Bookmarks action
+	 * 
+	 * @return string
+	 * 
+	 */
+	public function ___executeBookmarks() {
+		$bookmarks = $this->getPageBookmarks();
+		return $bookmarks->editBookmarks();
+	}
+	
+	/**
+	 * Set the headline used in the UI
+	 *
+	 */
+	public function setupHeadline() {
+
+		$titlePage = null;
+		$page = $this->page;
+		
+		if($page && $page->id) {
+			$title = $page->get('title');
+			if(is_object($title) && !strlen("$title") && wireInstanceOf($title, 'LanguagesPageFieldValue')) {
+				/** @var LanguagesPageFieldValue $title */
+				$title = $title->getNonEmptyValue($page->name);
+			} else {
+				$title = (string) $title;
+			}
+			if(empty($title)) {
+				if($this->wire('pages')->names()->isUntitledPageName($page->name)) {
+					$title = $page->template->getLabel();
+				} else {
+					$title = $page->get('name');
+				}
+			}
+			if(empty($title)) $title = $page->name;
+		} else if($this->parent && $this->parent->id) {
+			$titlePage = $this->parent;
+			$title = rtrim($this->parent->path, '/') . '/[...]';
+		} else {
+			$titlePage = new NullPage();
+			$title = '[...]';
+		}
+
+		$browserTitle = sprintf($this->_('Edit Page: %s'), $title);
+		$headline = '';
+
+		if($this->field) {
+			if(count($this->fields) == 1) {
+				$headline = $this->field->getLabel();
+			} else {
+				$labels = array();
+				foreach($this->fields as $field) {
+					$labels[] = $field->getLabel();
+				}
+				$headline = implode(', ', $labels);
+			}
+			$browserTitle .= " ($headline)";
+			
+		} else if($titlePage) {
+			$headline = $titlePage->get('title|name');
+		}
+	
+		if(empty($headline)) $headline = $title;
+
+		$this->headline($headline);
+		$this->browserTitle($browserTitle);
+	}
+
+	/**
+	 * Setup the breadcrumbs used in the UI
+	 *
+	 */
+	public function setupBreadcrumbs() {
+		if($this->input->urlSegment1) return;
+		if($this->wire('page')->process != $this->className()) return;
+		$this->wire('breadcrumbs')->shift(); // shift off the 'Admin' breadcrumb
+		if($this->page && $this->page->id != 1) $this->wire('breadcrumbs')->shift(); // shift off the 'Pages' breadcrumb
+		$page = $this->page ? $this->page : $this->parent;
+		if($this->masterPage) $page = $this->masterPage;
+		$lastID = (int) $this->session->get('ProcessPageList', 'lastID');
+		$editCrumbs = !empty($this->configSettings['editCrumbs']);
+
+		$numParents = $page->parents->count();
+		foreach($page->parents() as $cnt => $p) {
+			$url = $editCrumbs && $p->editable() ? "./?id=$p->id" : "../?open=$p->id";
+			if(!$editCrumbs && $cnt == $numParents-1 && $p->id == $lastID) $url = "../";
+			$this->breadcrumb($url, $p->get("title|name"));
+		}
+
+		if($this->page && $this->field) {
+			$this->breadcrumb("./?id={$this->page->id}", $page->get("title|name"));
+		}
+	}
+
+
+	/**
+	 * Module config
+	 * 
+	 * @param array $data
+	 * @return InputfieldWrapper
+	 * @throws WireException
+	 * 
+	 */
+	public function getModuleConfigInputfields(array $data) {
+		
+		$inputfields = new InputfieldWrapper();
+		$this->wire($inputfields); 
+		
+		$f = $this->wire('modules')->get('InputfieldRadios');
+		$f->name = 'viewAction'; 
+		$f->label = $this->_('Default "view" location/action'); 
+		$f->description = $this->_('The default type of action used when the "view" tab is clicked on in the page editor.');
+		$f->icon = 'eye';
+		
+		foreach($this->getViewActions(array(), true) as $name => $label) {
+			$f->addOption($name, $label);
+		}
+
+		$configData = $this->wire('config')->pageEdit;
+		if(isset($data['viewAction'])) {
+			$f->attr('value', $data['viewAction']);
+		} else if(is_array($configData) && !empty($configData['viewNew'])) {
+			$f->attr('value', 'new');
+		} else {
+			$f->attr('value', 'this');
+		}
+		
+		$inputfields->add($f);
+		
+		$bookmarks = $this->getPageBookmarks();
+		$bookmarks->addConfigInputfields($inputfields);
+		$admin = $this->wire('pages')->get($this->wire('config')->adminRootPageID);
+		$page = $this->wire('pages')->get($admin->path . 'page/edit/');
+		$bookmarks->checkProcessPage($page);
+		
+		return $inputfields;
+	}
+
+}
+
