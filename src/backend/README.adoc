@@ -25,7 +25,7 @@ development branch.
 
 ### Learn more
 
-- [ProcessWire website](https://processwire.com)
+- https://processwire.com[ProcessWire website]
 
 ## Site Structure
 
@@ -172,7 +172,7 @@ Will get all the available birds. (With only short info).
 
 Will get all the details of a specific bird.
 
-*Example*:
+*Example Response*:
 
 ```json
 {
