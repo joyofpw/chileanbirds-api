@@ -7,7 +7,15 @@ export default ({ setSearch }) => (
         <div className="container">
           <div className="columns has-text-centered">
             <div className="column">
-              <h1 className="title is-1">🇨🇱 Chilean Birds 🐦</h1>
+              <h1 className="title is-1">
+                <span role="img" aria-label="chile">
+                  🇨🇱
+                </span>{' '}
+                Chilean Birds{' '}
+                <span role="img" aria-label="bird">
+                  🐦
+                </span>
+              </h1>
             </div>
           </div>
           <div className="card">
