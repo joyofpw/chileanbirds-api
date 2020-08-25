@@ -37,6 +37,16 @@ It will run all the build and provision process.
 
 It will only run the docker-compose process. (No provisioning).
 
+## Demo
+
+You can access the demo site here:
+
+https://aves.ninjas.cl/
+
+And the demo api here:
+
+https://aves.ninjas.cl/api
+
 ++++
 Made with <i class="fa fa-heart">&#9829;</i> by <a href="https://ninjas.cl" target="_blank">Ninjas.cl</a>.
 ++++
