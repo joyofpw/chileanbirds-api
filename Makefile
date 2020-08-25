@@ -3,9 +3,23 @@ BACKEND = ./src/backend
 FRONTEND = ./src/frontend
 DATABASE = ./database
 CONFIG = ./config
+PW_CONTAINER = chileanbirds-api_pw_1
 
-r run up dcu docker-up:
+# Run the application
+r run u up du docker-up b build:
 	docker-compose up -d
+
+# Provision the database with the sql
+p provision:
+	docker exec -it $(PW_CONTAINER) php /var/www/html/provision/restore.php
+	
+# Use this command to run the api and the frontend
+i install:
+	docker-compose up -d --build
+	make provision
+
+s stop:
+	docker-compose down -v
 
 # Install a brand new copy of ProcessWire
 pw processwire:
@@ -40,6 +54,9 @@ c clean:
 	mkdir -p $(DATABASE)
 	touch $(DATABASE)/.gitkeep
 
-i install:
+# Use this command to delete everything
+# and start a new project
+reset:
+	make clean
 	make react
-	make processwire 
+	make processwire
