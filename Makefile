@@ -6,7 +6,7 @@ CONFIG = ./config
 PW_CONTAINER = chileanbirds-api_pw_1
 
 # Run the application
-r run u up du docker-up b build:
+s start r run u up du docker-up b build:
 	docker-compose up -d
 
 # Provision the database with the sql
@@ -18,7 +18,7 @@ i install:
 	docker-compose up -d --build
 	make provision
 
-s stop:
+h stop halt:
 	docker-compose down -v
 
 # Install a brand new copy of ProcessWire

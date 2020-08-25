@@ -1,14 +1,42 @@
-# Chilean Birds API
+:ext-relative:
+
+# 🇨🇱 Chilean Birds 🐦
 
 This is an small API using the https://github.com/NinjasCL/chileanbirds-dataset[Chilean Birds Dataset].
 
-## Technologies Backend
+http://www.buscaves.cl/[image:https://user-images.githubusercontent.com/292738/91234985-7eb58e80-e702-11ea-8fac-15faabe8fa2a.png[Platero | Phrygilus alaudinus]]
 
-- PHP
+## link:src/backend{ext-relative}[Backend Stack]
+
 - https://github.com/joyofpw/docker[Docker]
 - https://processwire.com/[ProcessWire]
 - MariaDB
+- PHP 7.4
 
-## Technologies Frontend
+image:https://user-images.githubusercontent.com/292738/91102827-fa96d480-e637-11ea-98eb-db3c3f52f32e.png[]
 
-- React.js
+## link:src/frontend{ext-relative}[Frontend Stack]
+
+- https://reactjs.org/[React.js]
+- https://bulma.io[Bulma.css]
+
+image:https://user-images.githubusercontent.com/292738/91229918-9e47b980-e6f8-11ea-96ac-a087101ce9ed.png[]
+
+## Installation
+
+### $ `make install`
+
+You can build a local version of the api.
+It will run all the build and provision process.
+
+- link:src/backend{ext-relative}[Backend]: `8080` (http://localhost:8080)
+- link:src/backend{ext-relative}[Backend Admin]: `8080` (http://localhost:8080/admin)
+- link:src/frontend{ext-relative}[Frontend]: `80` (http://localhost)
+
+### $ `make start`
+
+It will only run the docker-compose process. (No provisioning).
+
+++++
+Made with <i class="fa fa-heart">&#9829;</i> by <a href="https://ninjas.cl" target="_blank">Ninjas.cl</a>.
+++++
