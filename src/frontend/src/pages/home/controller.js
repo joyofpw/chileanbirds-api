@@ -42,8 +42,6 @@ export default () => {
     }
 
     Model.get.query({ id: openModal }).then((result) => {
-      console.log(result.item);
-
       setBirdModal(
         <BirdModal bird={result.item} setOpenModal={setOpenModal} />
       );

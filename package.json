@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "react-promise-tracker": "^2.1.0",
+    "react-spinkit": "^3.0.0"
+  }
+}

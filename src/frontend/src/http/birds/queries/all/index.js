@@ -1,18 +1,21 @@
 import defaultResponse from "./default";
 import presenter from "./presenter";
+import { trackPromise } from "react-promise-tracker";
 
 export default {
   default: defaultResponse,
   query: async ({ client }) => {
     const endpoint = client.endpoints.base;
 
-    const response = await client
-      .http({
-        method: "get",
-        url: endpoint,
-        headers: client.shared.headers,
-      })
-      .catch((_) => defaultResponse);
+    const response = await trackPromise(
+      client
+        .http({
+          method: "get",
+          url: endpoint,
+          headers: client.shared.headers,
+        })
+        .catch((_) => defaultResponse)
+    );
 
     if (response.isDefault) {
       return response;
