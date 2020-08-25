@@ -1,6 +1,8 @@
 # Chilean Birds API
 
-This is a simple API
+This is a simple API for data obtained from http://www.buscaves.cl/[Buscaves.cl].
+The website was parsed and made available as _JSON_ files at https://github.com/NinjasCL/chileanbirds-dataset[https://github.com/NinjasCL/chileanbirds-dataset].
+
 
 ## About ProcessWire
 
