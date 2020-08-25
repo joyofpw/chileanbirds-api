@@ -17,14 +17,15 @@ const makeColumn = (item, index) => (
             alt={item.name.latin}
             title={item.name.spanish}
             className="modal-button"
-            data-target="modal-image2"
           />
         </figure>
       </div>
       <div className="card-content">
         <div className="content">
-          <h2>{item.name.latin}</h2>
-          <p>{item.name.spanish}</p>
+          <h3 className="title is-3">{item.name.latin}</h3>
+          <p>
+            {item.name.spanish} / {item.name.english}
+          </p>
         </div>
       </div>
     </div>
@@ -51,11 +52,7 @@ const noResults = () => (
 );
 
 export default ({ birds }) => {
-  if (!birds) {
-    return null;
-  }
-
-  if (birds.total === 0) {
+  if (!birds || birds.total === 0) {
     return noResults();
   }
 
@@ -63,25 +60,29 @@ export default ({ birds }) => {
   const hasReachedMaxColumns = (index) =>
     index > 0 && index % columnsPerRow === 0;
 
-  const totalColumnsIsBelowColumnsPerRow = birds.length <= columnsPerRow;
-
   let columns = [];
-  const elements = [];
+  const rows = [];
 
   birds.items.forEach((item, index) => {
-    if (hasReachedMaxColumns(index) || totalColumnsIsBelowColumnsPerRow) {
-      elements.push(makeColumnsContainer(columns, index));
-      if (hasReachedMaxColumns(index)) {
-        columns = [];
-      }
-    }
     columns.push(makeColumn(item, index));
+
+    if (columns.length >= columnsPerRow) {
+      rows.push(makeColumnsContainer(columns, index));
+    }
+
+    if (hasReachedMaxColumns(index)) {
+      columns = [];
+    }
   });
 
   return (
     <section className="container">
-      <InfiniteScroller pageStart={1} threshold={10} loadMore={() => {}}>
-        {elements}
+      <InfiniteScroller
+        pageStart={1}
+        threshold={birds.total}
+        loadMore={() => {}}
+      >
+        {rows}
       </InfiniteScroller>
     </section>
   );

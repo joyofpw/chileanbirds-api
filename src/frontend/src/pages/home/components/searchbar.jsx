@@ -1,6 +1,6 @@
 import React from "react";
 
-export default ({ search, setSearch }) => (
+export default ({ setSearch }) => (
   <>
     <section className="hero is-info">
       <div className="hero-body">
@@ -18,7 +18,7 @@ export default ({ search, setSearch }) => (
                     className="input is-large searchbar"
                     type="search"
                     onChange={setSearch}
-                    placeholder={search}
+                    placeholder="Bird"
                     autoFocus
                   />
                   <span className="icon is-medium is-left">

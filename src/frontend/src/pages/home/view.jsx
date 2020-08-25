@@ -3,10 +3,10 @@ import NavBar from "./components/navbar";
 import SearchBar from "./components/searchbar";
 import Birds from "./components/birds";
 
-const View = ({ birds }) => (
+const View = ({ birds, setSearch }) => (
   <>
     <NavBar />
-    <SearchBar />
+    <SearchBar setSearch={setSearch} />
     <Birds birds={birds} />
   </>
 );
