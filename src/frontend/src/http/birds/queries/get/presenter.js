@@ -1,1 +1,1 @@
-export default (json) => ({ item: json });
+export default (result) => ({ item: result.json });

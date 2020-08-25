@@ -4,7 +4,7 @@ import presenter from "./presenter";
 export default {
   default: defaultResponse,
   query: async ({ client, id }) => {
-    const endpoint = client.endpoints.base + id;
+    const endpoint = client.endpoints.base + id + "/";
     const response = await client
       .http({
         method: "get",
