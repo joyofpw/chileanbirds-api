@@ -1,4 +1,4 @@
-import React from "react";
+import React from 'react';
 
 export default ({ setSearch }) => (
   <>
@@ -7,7 +7,7 @@ export default ({ setSearch }) => (
         <div className="container">
           <div className="columns has-text-centered">
             <div className="column">
-              <h1 className="title is-1">Chilean Birds</h1>
+              <h1 className="title is-1">🇨🇱 Chilean Birds 🐦</h1>
             </div>
           </div>
           <div className="card">
