@@ -1,0 +1,127 @@
+import React from 'react';
+import InfiniteScroller from 'react-infinite-scroller';
+import { Spinner } from '../../../shared/components';
+import { usePromiseTracker } from 'react-promise-tracker';
+
+const makeRow = (cols, index) => (
+  <div key={index} className="columns features">
+    {cols}
+  </div>
+);
+
+const makeColumnItem = (
+  item,
+  index,
+  { openModal, setOpenModal, birdModal }
+) => {
+  return (
+    <React.Fragment key={index}>
+      <div
+        className="column is-3"
+        onClick={() => setOpenModal(item.uid)}
+        style={{ cursor: 'pointer' }}
+      >
+        <div className="card is-shady">
+          <div className="card-image">
+            <figure className="image is-4by3">
+              <img
+                src={item.images.main}
+                alt={item.name.latin}
+                title={item.name.spanish}
+                className="modal-button"
+              />
+            </figure>
+          </div>
+          <div className="card-content">
+            <div className="content">
+              <h3 className="title is-3">{item.name.latin}</h3>
+              <p>
+                {item.name.spanish} / {item.name.english}
+              </p>
+              {openModal === item.uid ? <Spinner /> : null}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {openModal === item.uid ? birdModal : null}
+    </React.Fragment>
+  );
+};
+
+const noResults = () => (
+  <section className="container">
+    <div className="columns">
+      <div className="column is-12">
+        <div className="content has-text-centered">
+          <span className="icon is-large">
+            <h1
+              className="is-title"
+              style={{ fontSize: '5em', paddingTop: '3em' }}
+            >
+              <i className="fa fa-exclamation-triangle"></i>
+            </h1>
+          </span>
+        </div>
+      </div>
+    </div>
+  </section>
+);
+
+export default ({ birds, openModal, setOpenModal, birdModal }) => {
+  if (!birds) {
+    return noResults();
+  }
+
+  const { promiseInProgress } = usePromiseTracker();
+  if (birds.total === 0 && promiseInProgress) {
+    return <Spinner />;
+  }
+
+  if (birds.total === 0) {
+    return noResults();
+  }
+
+  const columnsPerRow = 4;
+  const hasReachedMaxColumnItems = (index) =>
+    index > 0 && index % columnsPerRow === 0;
+
+  const columns = {};
+  const rows = [];
+  let rowCounter = 0;
+
+  birds.items.forEach((item, index) => {
+    if (hasReachedMaxColumnItems(index)) {
+      rowCounter++;
+    }
+
+    if (!columns[rowCounter]) {
+      columns[rowCounter] = [];
+    }
+
+    columns[rowCounter].push(
+      makeColumnItem(item, index, {
+        openModal,
+        setOpenModal,
+        birdModal
+      })
+    );
+  });
+
+  Object.keys(columns).forEach((key, index) => {
+    const cols = columns[key];
+    rows.push(makeRow(cols, index));
+  });
+
+  return (
+    <section className="container">
+      <InfiniteScroller
+        pageStart={1}
+        threshold={birds.total}
+        loadMore={() => {}}
+      >
+        {rows}
+      </InfiniteScroller>
+    </section>
+  );
+};
