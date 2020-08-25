@@ -3,11 +3,11 @@ import NavBar from "./components/navbar";
 import SearchBar from "./components/searchbar";
 import Birds from "./components/birds";
 
-const View = () => (
+const View = ({ birds }) => (
   <>
     <NavBar />
     <SearchBar />
-    <Birds />
+    <Birds birds={birds} />
   </>
 );
 

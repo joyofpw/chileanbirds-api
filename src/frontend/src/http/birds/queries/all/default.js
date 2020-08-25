@@ -2,4 +2,5 @@
 export default {
   items: [],
   isDefault: true,
+  total: 0,
 };
