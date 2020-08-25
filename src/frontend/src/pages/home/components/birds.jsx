@@ -7,13 +7,13 @@ const makeRow = (cols, index) => (
   </div>
 );
 
-const makeColumn = (item, index, { openModal, setOpenModal, birdModal }) => (
-  <>
-    <div
-      key={index}
-      className="column is-3"
-      onClick={() => setOpenModal(item.uid)}
-    >
+const makeColumnItem = (
+  item,
+  index,
+  { openModal, setOpenModal, birdModal }
+) => (
+  <React.Fragment key={index}>
+    <div className="column is-3" onClick={() => setOpenModal(item.uid)}>
       <div className="card is-shady">
         <div className="card-image">
           <figure className="image is-4by3">
@@ -37,7 +37,7 @@ const makeColumn = (item, index, { openModal, setOpenModal, birdModal }) => (
     </div>
 
     {openModal === item.uid ? birdModal : null}
-  </>
+  </React.Fragment>
 );
 
 const noResults = () => (
@@ -65,7 +65,7 @@ export default ({ birds, openModal, setOpenModal, birdModal }) => {
   }
 
   const columnsPerRow = 4;
-  const hasReachedMaxColumns = (index) =>
+  const hasReachedMaxColumnItems = (index) =>
     index > 0 && index % columnsPerRow === 0;
 
   const columns = {};
@@ -73,7 +73,7 @@ export default ({ birds, openModal, setOpenModal, birdModal }) => {
   let rowCounter = 0;
 
   birds.items.forEach((item, index) => {
-    if (hasReachedMaxColumns(index)) {
+    if (hasReachedMaxColumnItems(index)) {
       rowCounter++;
     }
 
@@ -82,7 +82,7 @@ export default ({ birds, openModal, setOpenModal, birdModal }) => {
     }
 
     columns[rowCounter].push(
-      makeColumn(item, index, {
+      makeColumnItem(item, index, {
         openModal,
         setOpenModal,
         birdModal,
