@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import View from "./view";
 import Model from "./model";
 
@@ -16,8 +16,14 @@ export default () => {
     }
 
     const filtered = birds.items.filter((bird) => {
-      const names = `${bird.name.spanish} ${bird.name.english} ${bird.uid}`.toLowerCase();
-      return names.search(query) > 0;
+      const text = [
+        bird.name.spanish.toLowerCase(),
+        bird.name.english.toLowerCase(),
+        bird.name.latin.toLowerCase(),
+        bird.uid.split("-"),
+      ].join(" ");
+
+      return text.search(query) > 0;
     });
 
     const result = { items: filtered, total: filtered.length };
@@ -31,10 +37,6 @@ export default () => {
       setCachedBirds(results);
     });
   }, []);
-
-  useEffect(() => {
-    console.log({ cachedBirds });
-  }, [cachedBirds]);
 
   return <View birds={cachedBirds} setSearch={updateSearch} />;
 };

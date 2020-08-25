@@ -1,7 +1,7 @@
 import React from "react";
 import InfiniteScroller from "react-infinite-scroller";
 
-const makeColumnsContainer = (cols, index) => (
+const makeRow = (cols, index) => (
   <div key={index} className="columns features">
     {cols}
   </div>
@@ -60,19 +60,25 @@ export default ({ birds }) => {
   const hasReachedMaxColumns = (index) =>
     index > 0 && index % columnsPerRow === 0;
 
-  let columns = [];
+  const columns = {};
   const rows = [];
+  let rowCounter = 0;
 
   birds.items.forEach((item, index) => {
-    columns.push(makeColumn(item, index));
-
-    if (columns.length >= columnsPerRow) {
-      rows.push(makeColumnsContainer(columns, index));
-    }
-
     if (hasReachedMaxColumns(index)) {
-      columns = [];
+      rowCounter++;
     }
+
+    if (!columns[rowCounter]) {
+      columns[rowCounter] = [];
+    }
+
+    columns[rowCounter].push(makeColumn(item, index));
+  });
+
+  Object.keys(columns).forEach((key, index) => {
+    const cols = columns[key];
+    rows.push(makeRow(cols, index));
   });
 
   return (
