@@ -1,0 +1,712 @@
+<?php namespace ProcessWire;
+
+require_once(dirname(__FILE__) . '/PagerNav.php'); 
+
+/**
+ * MarkupPagerNav Module for generating pagination markup
+ * 
+ * ProcessWire 3.x, Copyright 2016 by Ryan Cramer
+ * https://processwire.com
+ *
+ * #pw-summary Module for generating pagination markup automatically for paginated WireArray types. 
+ * #pw-var $pager
+ * #pw-instantiate $pager = $modules->get('MarkupPagerNav'); 
+ * #pw-summary-options-methods Specific to setting certain options that are typically set automatically. Not necessary to use these unless for a specific purpose. 
+ * 
+ * #pw-body =
+ * This module can create pagination for a `PageArray` or any other kind of `PaginatedArray` type. 
+ * Below is an example of creating pagination for a PageArray returned from `$pages->find()`. 
+ * ~~~~~
+ * // $items can be PageArray or any other kind of PaginatedArray type
+ * $items = $pages->find("id>0, limit=10"); // replace id>0 with your selector
+ * if($items->count()) {
+ *   $pager = $modules->get("MarkupPagerNav");
+ *   echo "<ul>" . $items->each("<li>{title}</li>") . "</ul>";
+ *   echo $pager->render($items); // render the pagination navigation
+ * } else {
+ *   echo "<p>Sorry there were no items found</p>";
+ * }
+ * ~~~~~
+ * Here’s a shortcut alternative that you can use for PageArray types (thanks to the `MarkupPageArray` module).
+ * Note that in this case, it’s not necessary to load the MarkupPagerNav module yourself:
+ * ~~~~~
+ * $items = $pages->find("id>0, limit=10"); // replace id>0 with your selector
+ * if($items->count()) {
+ *   echo "<ul>" . $items->each("<li>{title}</li>") . "</ul>";
+ *   echo $items->renderPager(); // render the pagination navigation
+ * } else {
+ *   echo "<p>Sorry there were no items found</p>";
+ * }
+ * ~~~~~
+ * It’s common to specify different markup and/or classes specific to the need when rendering
+ * pagination. This is done by providing an `$options` array to the `MarkupPagerNav::render()` call.
+ * In the example below, we'll specify Uikit markup rather then the default markup: 
+ * ~~~~~
+ * // Change options for Uikit "uk-pagination" navigation
+ * $options = array(
+ *   'numPageLinks' => 5,
+ *   'listClass' => 'uk-pagination',
+ *   'linkMarkup' => "<a href='{url}'>{out}</a>",
+ *   'currentItemClass' => 'uk-active',
+ *   'separatorItemLabel' => '<span>&hellip;</span>',
+ *   'separatorItemClass' => 'uk-disabled',
+ *   'currentLinkMarkup' => "<span>{out}</span>"
+ *   'nextItemLabel' => '<i class="uk-icon-angle-double-right"></i>',
+ *   'previousItemLabel' => '<i class="uk-icon-angle-double-left"></i>',
+ *   'nextItemClass' => '', // blank out classes irrelevant to Uikit
+ *   'previousItemClass' => '',
+ *   'lastItemClass' => '',
+ * );
+ * 
+ * $items = $pages->find("id>0, limit=10"); // replace id>0 with your selector
+ * 
+ * if($items->count()) {
+ *   $pager = $modules->get('MarkupPagerNav');
+ *   echo "<ul>" . $items->each("<li>{title}</li>") . "</ul>";
+ *   echo $pager->render($items, $options); // provide the $options array
+ * } else {
+ *   echo "<p>Sorry there were no items found</p>";
+ * }
+ * ~~~~~
+ * The full list of options can be seen below. Please note that most options are set automatically since this module can
+ * determine most of the needed information directly from the WireArray that it’s given. As a result, it’s often
+ * not necessary to change any of the default options unless you want to change the markup and/or classes used in output. 
+ * #pw-body
+ *
+ * @property int $numPageLinks The number of links that the pagination navigation should have, minimum 5 (default=10). #pw-group-general-options
+ * @property array $getVars GET vars that should appear in the pagination, or leave empty and populate $input->whitelist (recommended). #pw-group-general-options
+ * @property string $baseUrl The base URL from which the navigation item links will start (default=''). #pw-group-general-options
+ * @property null|Page $page The current Page, or leave NULL to autodetect. #pw-group-general-options
+ * @property string $listMarkup List container markup. Place {out} where you want the individual items rendered and {class} where you want the list class (default="<ul class='{class}' aria-label='{aria-label}'>{out}</ul>"). #pw-group-markup-options
+ * @property string $listClass The class name to use in the $listMarkup (default='MarkupPageNav'). #pw-group-class-options
+ * @property string $itemMarkup List item markup. Place {class} for item class (required), and {out} for item content. (default="<li class='{class}' aria-label='{aria-label}'>{out}</li>"). #pw-group-markup-options
+ * @property string $linkMarkup Link markup. Place {url} for href attribute, and {out} for label content. (default="<a href='{url}'><span>{out}</span></a>"). #pw-group-markup-options
+ * @property string $currentLinkMarkup Link markup for current page. Place {url} for href attribute and {out} for label content. (default="<a href='{url}'><span>{out}</span></a>"). #pw-group-markup-options
+ * @property string $nextItemLabel label used for the 'Next' button (default='Next'). #pw-group-label-options
+ * @property string $previousItemLabel label used for the 'Previous' button (default='Prev'). #pw-group-label-options
+ * @property string $separatorItemMarkup Markup to use for the "..." separator item, or NULL to use $itemMarkup (default=NULL). #pw-group-markup-options
+ * @property string $separatorItemLabel label used in the separator item (default='&hellip;'). #pw-group-label-options
+ * @property string $separatorItemClass Class for separator item (default='MarkupPagerNavSeparator'). #pw-group-class-options
+ * @property string $firstItemClass Class for first item (default='MarkupPagerNavFirst'). #pw-group-class-options
+ * @property string $firstNumberItemClass Class for first numbered item (default='MarkupPagerNavFirstNum'). #pw-group-class-options
+ * @property string $nextItemClass Class for next item (default='MarkupPagerNavNext'). #pw-group-class-options
+ * @property string $previousItemClass Class for previous item (default='MarkupPagerNavPrevious'). #pw-group-class-options
+ * @property string $lastItemClass Class for last item (default='MarkupPagerNavLast'). #pw-group-class-options
+ * @property string $lastNumberItemClass Class for last numbered item (default='MarkupPagerNavLastNum'). #pw-group-class-options
+ * @property string $currentItemClass Class for current item (default='MarkupPagerNavOn'). #pw-group-class-options
+ * @property string $listAriaLabel Label announcing pagination to screen readers (default='Pagination links'). #pw-group-label-options
+ * @property string $itemAriaLabel Label announcing page number to screen readers (default='Page {n}'). #pw-group-label-options
+ * @property string $currentItemAriaLabel Label announcing current page to screen readers (default='Page {n}, current page'). #pw-group-label-options
+ * @property-write bool $arrayToCSV When arrays are present in getVars, they will be translated to CSV strings in the queryString "?var=a,b,c". If set to false, then arrays will be kept in traditional format: "?var[]=a&var[]=b&var=c". (default=true) #pw-group-other-options
+ * @property int $totalItems Get total number of items to paginate (set automatically). #pw-group-other-options
+ * @property-read int $itemsPerPage Get number of items to display per page (set automatically, pulled from limit=n). #pw-group-other-options
+ * @property int $pageNum Get or set the current page number (1-based, set automatically). #pw-group-other-options
+ * @property string $queryString Get or set query string used in links (set automatically, based on $input->whitelist or getVars array). #pw-group-other-options
+ * @property-read bool $isLastPage Is the current pagination the last? Set automatically after a render() call. #pw-internal
+ * 
+ * @method string render(WirePaginatable $items, $options = array())
+ *
+ */
+class MarkupPagerNav extends Wire implements Module {
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => 'Pager (Pagination) Navigation', 
+			'summary' => 'Generates markup for pagination navigation', 
+			'version' => 105,
+			'permanent' => false, 
+			'singular' => false, 
+			'autoload' => false, 
+			);
+	}
+
+	/**
+	 * Options to modify the behavior and output of MarkupPagerNav
+	 *
+	 * Many of these are set automatically. 
+	 *
+	 */
+	protected $options = array(
+
+		// number of links that the pagination navigation should have, minimum 5 (typically 10) 
+		'numPageLinks' => 10,	
+
+		// get vars that should appear in the pagination, or leave empty and populate $input->whitelist (preferred)
+		'getVars' => array(), 	
+
+		// the baseUrl from which the navigiation item links will start
+		'baseUrl' => '',	
+
+		// the current Page, or leave NULL to autodetect
+		'page' => null, 	
+
+		// List container markup. Place {out} where you want the individual items rendered. 
+		'listMarkup' => "\n<ul class='{class}' role='navigation' aria-label='{aria-label}'>{out}\n</ul>",
+
+		// class attribute for <ul> pagination list
+		'listClass' => 'MarkupPagerNav', 
+
+		// List item markup. Place {class} for item class (required), and {out} for item content. 
+		'itemMarkup' => "\n\t<li aria-label='{aria-label}' class='{class}' {attr}>{out}</li>",
+	
+		// Item separator "...", null makes it use the 'itemMarkup' instead (default)
+		'separatorItemMarkup' => null,
+
+		// Link markup. Place {url} for href attribute, and {out} for label content. 
+		'linkMarkup' => "<a href='{url}'><span>{out}</span></a>", 
+
+		// Link markup for current page. Place {url} for href attribute and {out} for label content. 
+		'currentLinkMarkup' => "<a href='{url}'><span>{out}</span></a>", 
+
+		// label used for the 'Next' button
+		'nextItemLabel' => 'Next', 
+
+		// label used for the 'Previous' button
+		'previousItemLabel' => 'Prev', 
+
+		// label used in the separator item
+		'separatorItemLabel' => '&hellip;', 
+
+		// default classes used for list items, according to the type. 
+		'separatorItemClass' => 'MarkupPagerNavSeparator', 
+		'firstItemClass' => 'MarkupPagerNavFirst', 
+		'firstNumberItemClass' => 'MarkupPagerNavFirstNum', 
+		'nextItemClass' => 'MarkupPagerNavNext', 
+		'previousItemClass' => 'MarkupPagerNavPrevious', 
+		'lastItemClass' => 'MarkupPagerNavLast', 
+		'lastNumberItemClass' => 'MarkupPagerNavLastNum',
+		'currentItemClass' => 'MarkupPagerNavOn', 
+		
+		// any extra attributes for current item
+		'currentItemExtraAttr' => "aria-current='true'",
+		
+		// aria labels
+		'listAriaLabel' => 'Pagination links',
+		'itemAriaLabel' => 'Page {n}',
+		'currentItemAriaLabel' => 'Page {n}, current page',
+		'nextItemAriaLabel' => 'Next page', 
+		'previousItemAriaLabel' => 'Previous page',
+		'lastItemAriaLabel' => 'Page {n}, last page', 
+
+		/*
+		 * NOTE: The following options are set automatically and should not be provided in your $options,
+	 	 * because anything you specify will get overwritten. 
+		 *
+		 */
+
+		// total number of items to paginate (set automatically)
+		'totalItems' => 0,	
+
+		// number of items to display per page (set automatically) 
+		'itemsPerPage' => 10,	
+
+		// the current page number (1-based, set automatically)
+		'pageNum' => 1,		
+
+		// when arrays are present in getVars, they will be translated to CSV strings in the queryString: ?var=a,b,c
+		// if set to false, then arrays will be kept in traditional format: ?var[]=a&var[]=b&var=c 
+		'arrayToCSV' => true,
+
+		// the queryString used in links (set automatically, based on whitelist or getVars array)
+		'queryString' => '', 	
+	
+		);
+
+	/**
+	 * True when the current page is also the last page
+	 * 
+	 * @var bool|null
+	 * 
+	 */
+	protected $isLastPage = null;
+
+	/**
+	 * Prefix to identify page numbers in URL, i.e. page123 or page=123
+	 * 
+	 * @var string
+	 * 
+	 */
+	protected $pageNumUrlPrefix = 'page';
+
+	/**
+	 * Construct
+	 * 
+	 */
+	public function __construct() {
+		$this->options['nextItemLabel'] = $this->_('Next');
+		$this->options['previousItemLabel'] = $this->_('Prev');
+		$this->options['listAriaLabel'] = $this->_('Pagination links');
+		$this->options['itemAriaLabel'] = $this->_('Page {n}'); // Page number label // Note that {n} is replaced with pagination number
+		$this->options['currentItemAriaLabel'] = $this->_('Page {n}, current page');
+		$this->options['nextItemAriaLabel'] = $this->_('Next page');
+		$this->options['previousItemAriaLabel'] = $this->_('Previous page');
+		$this->options['lastItemAriaLabel'] = $this->_('Page {n}, last page');
+	
+		// check for all-instance options
+		$options = $this->wire('config')->MarkupPagerNav;
+		if(is_array($options)) $this->options = array_merge($this->options, $options);
+	}
+
+	/**
+	 * Render pagination markup
+	 * 
+	 * ~~~~~
+	 * $items = $pages->find("id>0, limit=10"); // replace id>0 with your selector
+	 * if($items->count()) {
+	 *   echo "<ul>" . $items->each("<li>{title}</li>") . "</ul>";
+	 *   $pager = $modules->get("MarkupPagerNav");
+	 *   $options = [ 'numPageLinks' => 5 ];
+	 *   echo $pager->render($items, $options); // render the pagination navigation
+	 * } else {
+	 *   echo "<p>Sorry there were no items found</p>";
+	 * }
+	 * ~~~~~
+	 *
+	 * @param WirePaginatable|PageArray|PaginatedArray $items Items used in the pagination that have had a "limit=n" selector applied when they were loaded. 
+	 * @param array $options Any options to override the defaults. See the `MarkupPagerNav` reference for all options. 
+	 * @return string
+	 * @see MarkupPageArray::renderPager()
+	 *
+	 */
+	public function ___render(WirePaginatable $items, $options = array()) {
+
+		$config = $this->wire('config');
+		$this->isLastPage = true; 
+		$this->totalItems = $items->getTotal();
+		if(!$this->totalItems) return '';
+
+		$this->options = array_merge($this->options, $options); 
+		$limit = $items->getLimit();
+		if($limit) $this->itemsPerPage = $limit;
+		$this->pageNum = $items->getStart() < $this->itemsPerPage  ? 1 : ceil($items->getStart() / $this->itemsPerPage)+1; 
+
+		if(is_null($this->options['page'])) {
+			$this->options['page'] = $this->wire('page');
+		}
+
+		if(!strlen($this->queryString)) {
+			$whitelist = $this->wire('input')->whitelist->getArray(); 
+			if(!count($this->options['getVars']) && count($whitelist)) {
+				$this->setGetVars($whitelist);
+			} else if(count($this->options['getVars'])) {
+				$this->setGetVars($this->getVars);
+			}
+		}
+		
+		if($config->pageNumUrlPrefix) {
+			$this->pageNumUrlPrefix = $config->pageNumUrlPrefix;
+		}
+
+		$pagerNav = new PagerNav($this->totalItems, $this->itemsPerPage, $this->pageNum); 
+		$pagerNav->setLabels($this->options['previousItemLabel'], $this->options['nextItemLabel']); 
+		$pagerNav->setNumPageLinks($this->numPageLinks); 
+		$pager = $pagerNav->getPager();
+		$out = '';
+	
+		$pagerCount = count($pager);
+		if($pagerCount > 1) $this->isLastPage = false; 
+		$firstNumberKey = null;
+		$lastNumberKey = null;
+
+		// determine first and last numbered items
+		foreach($pager as $key => $item) {
+			if(!ctype_digit("$item->label")) continue;
+			if(is_null($firstNumberKey)) $firstNumberKey = $key;
+			$lastNumberKey = $key;
+		}
+		
+		$_url = ''; // URL from previous loop interation
+		$nextURL = '';
+		$prevURL = '';
+		$lastWasCurrent = false; // was the last iteration for the current page item?
+		
+		foreach($pager as $key => $item) {
+
+			if($item->type == 'separator') {
+				$out .= $this->renderItemSeparator();
+				continue; 
+			} 
+			
+			$url = $this->getURL($item->pageNum); 
+			$classes = array();
+			
+			if($item->type != 'first' && $item->type != 'last' && isset($this->options[$item->type . 'ItemClass'])) {
+				$classes[] = $this->options[$item->type . 'ItemClass'];
+			}
+
+			if(!$key) {
+				$classes[] = $this->options['firstItemClass'];
+			} else if($key == ($pagerCount-1)) {
+				$classes[] = $this->options['lastItemClass'];
+			}
+
+			if($key === $firstNumberKey) {
+				$classes[] = $this->options['firstNumberItemClass'];
+			} else if($key === $lastNumberKey) {
+				$classes[] = $this->options['lastNumberItemClass'];
+				if($item->type == 'current') $this->isLastPage = true; 
+			}
+
+			$itemExtraAttr = '';
+			if($item->type == 'current') {
+				$itemAriaLabel = $this->options['currentItemAriaLabel'];
+				$itemExtraAttr = ' ' . $this->options['currentItemExtraAttr'];
+			} else if($item->type == 'previous') {
+				$itemAriaLabel = $this->options['previousItemAriaLabel'];
+			} else if($item->type == 'next') {
+				$itemAriaLabel = $this->options['nextItemAriaLabel'];
+			} else if($item->type == 'last') {
+				$itemAriaLabel = $this->options['lastItemAriaLabel'];
+			} else {
+				$itemAriaLabel = $this->options['itemAriaLabel'];
+			}
+			$itemAriaLabel = str_replace('{n}', $item->pageNum, $itemAriaLabel);
+			
+			if(isset($this->options[$item->type . 'LinkMarkup'])) {
+				$linkMarkup = $this->options[$item->type . 'LinkMarkup'];
+			} else {
+				$linkMarkup = $this->options['linkMarkup'];
+			}
+			$link = str_replace(array('{url}', '{out}'), array($url, $item->label), $linkMarkup);
+			
+			$out .= str_replace(
+				array(
+					'{class}', 
+					'{out}', 
+					'{aria-label}', 
+					' {attr}',
+					'{attr}'
+				), 
+				array(
+					implode(' ', $classes),
+					$link, 
+					$itemAriaLabel,
+					$itemExtraAttr,
+					$itemExtraAttr
+				), 
+				$this->options['itemMarkup']
+			);
+			
+			if($item->type == 'current') {
+				$prevURL = $_url;
+				$lastWasCurrent = true;
+			} else {
+				if($lastWasCurrent) $nextURL = $url;
+				$lastWasCurrent = false;
+			}
+			
+			$_url = $url; // remember previous url
+		}
+
+		if($out) {
+			$out = str_replace(array(
+				'{class}',
+				'{aria-label}',
+				'{out}',
+				" class=''", 
+				' class=""'
+			), array(
+				$this->options['listClass'],
+				$this->options['listAriaLabel'],
+				$out,
+				'',
+				''
+			), $this->options['listMarkup']);
+
+			if($nextURL || $prevURL) $this->updateConfigVars($nextURL, $prevURL); 
+		}
+		
+		return $out; 
+	}
+
+	/**
+	 * Render the "..." item separator 
+	 * 
+	 * @return string
+	 * 
+	 */
+	protected function renderItemSeparator() {
+		if($this->options['separatorItemMarkup'] !== null) {
+			$markup = $this->options['separatorItemMarkup'];
+		} else {
+			$markup = $this->options['itemMarkup'];
+		}
+		return str_replace(
+			array(
+				'{class}',
+				'{out}',
+				'{aria-label}',
+				' {attr}', // optionally with leading space
+				'{attr}'
+			),
+			array(
+				$this->options['separatorItemClass'],
+				$this->options['separatorItemLabel'],
+				'',
+				'',
+				''
+			),
+			$markup
+		);
+	}
+
+	/**
+	 * Retrieve a MarkupPagerNav option as an object property
+	 * 
+	 * @param string $property
+	 * @return mixed
+	 *
+	 */
+	public function __get($property) {
+		if(isset($this->options[$property])) return $this->options[$property]; 
+		if($property == 'isLastPage') return $this->isLastPage; 
+		return null;
+	}
+
+	/**
+	 * Set a MarkupPagerNav option as an object property
+	 * 
+	 * @param string $property
+	 * @param mixed $value
+	 *
+	 */
+	public function __set($property, $value) {
+		if(isset($this->options[$property])) $this->options[$property] = $value; 
+	}
+
+	/**
+	 * Returns true when the current pagination is the last one
+	 *
+	 * Only set after a render() call. Prior to that it is null.
+	 * 
+	 * #pw-internal
+	 *
+	 * @return bool|null
+	 *
+	 */
+	public function isLastPage() {
+		return $this->isLastPage;
+	}
+
+	/**
+	 * Get all options or set options
+	 * 
+	 * - See the main `MarkupPagerNav` documentation for a list of all available options. 
+	 * - When used to set options this method should be called before the `MarkupPagerNav::render()` method.
+	 * - Options can also be set as a 2nd argument to the `MarkupPagerNav::render()` method. 
+	 * 
+	 * ~~~~~
+	 * // Getting options
+	 * echo "<pre>" . print_r($pager->options(), true) . "</pre>";
+	 * 
+	 * // Setting options
+	 * $pager->options([ 'numPageLinks' => 5 ]); 
+	 * echo $pager->render($items);
+	 * 
+	 * // Alternative that does the same as above
+	 * echo $pager->render($items, [ 'numPageLinks' => 5 ]); 
+	 * ~~~~~
+	 * 
+	 * @param array $options Associative array of options you want to set, or omit to just return all available/current options.
+	 * @return array Returns associative array if options with all current values.
+	 * @since 3.0.44
+	 * 
+	 */
+	public function options(array $options = array()) {
+		if(!empty($options)) {
+			$this->options = array_merge($this->options, $options);
+		}
+		return $this->options;
+	}
+
+	/*************************************************************************************************
+	 * All the methods below are optional and typically set automatically, or via the $options param. 
+	 *
+	 */
+	
+	/**
+	 * Set the getVars for this MarkupPagerNav
+	 *
+	 * Generates $this->options['queryString'] automatically.
+	 * 
+	 * #pw-group-method-options
+	 *
+	 * @param array $vars Array of GET vars indexed as ($key => $value)
+	 *
+	 */
+	public function setGetVars(array $vars) {
+		$this->options['getVars'] = $vars;
+		$queryString = "?";
+		foreach($this->options['getVars'] as $key => $value) {
+			if(is_array($value)) {
+				if($this->options['arrayToCSV']) {
+					$a = $value;
+					$value = '';
+					foreach($a as $k => $v) $value .= "$v,";
+					$value = rtrim($value, ", ");
+					$queryString .= "$key=" . urlencode($value) . "&";
+				} else {
+					foreach($value as $k => $v) $queryString .= "$key%5B%5D=" . urlencode($v) . "&";
+				}
+
+			} else {
+				$queryString .= "$key=" . urlencode($value) . "&";
+			}
+		}
+		$this->queryString = htmlspecialchars(rtrim($queryString, "?&"));
+	}
+
+
+	/**
+	 * Set the current page number
+	 * 
+	 * #pw-group-method-options
+	 * 
+	 * @param int $n
+	 * 
+	 */
+	public function setPageNum($n) { $this->pageNum = $n; }
+
+	/**
+	 * Set the number of items shown per page
+	 * 
+	 * #pw-group-method-options
+	 * 
+	 * @param int $n
+	 * 
+	 */
+	public function setItemsPerPage($n) { $this->itemsPerPage = $n; }
+
+	/**
+	 * Set the total number of items
+	 * 
+	 * #pw-group-method-options
+	 * 
+	 * @param int $n
+	 * 
+	 */
+	public function setTotalItems($n) { $this->totalItems = $n; }
+
+	/**
+	 * Set the number of pagination links to use
+	 * 
+	 * #pw-group-method-options
+	 * 
+	 * @param int $n
+	 * 
+	 */
+	public function setNumPageLinks($n) { $this->numPageLinks = $n; }
+
+	/**
+	 * Set the query string
+	 * 
+	 * #pw-group-method-options
+	 * 
+	 * @param string $s Already-sanitized/validated query string
+	 * 
+	 */
+	public function setQueryString($s) { $this->queryString = $s; }
+
+	/**
+	 * Set the base URL for pagination
+	 * 
+	 * #pw-group-method-options
+	 * 
+	 * @param string $url
+	 * 
+	 */
+	public function setBaseUrl($url) { $this->baseUrl = $url; }
+
+	/**
+	 * Set the "next" and "prev" labels
+	 * 
+	 * #pw-group-method-options
+	 * 
+	 * @param string $next
+	 * @param string $prev
+	 * 
+	 */
+	public function setLabels($next, $prev) { 
+		$this->options['nextItemLabel'] = $next; 
+		$this->options['previousItemLabel'] = $prev; 
+	}
+
+	/**
+	 * Get URL for given pagination number
+	 * 
+	 * Requires that render() method has already started or been previously called. 
+	 *
+	 * @param int $pageNum
+	 * @param bool $http Include scheme and hostname?
+	 * @return string
+	 *
+	 */
+	public function getURL($pageNum, $http = false) {
+
+		/** @var Page $page */
+		$page = $this->options['page'];
+		$template = $page->template;
+		if($this->baseUrl) {
+			$url = $this->baseUrl;
+		} else if($http) {
+			$url = $page->httpUrl();
+		} else {
+			$url = $page->url();
+		}
+
+		if($pageNum > 1) {
+			if($template->allowPageNum) {
+				// if allowPageNum is true, then we can use urlSegment style page numbers rather than GET var page numbers	
+				if($template->slashUrls === 0) $url .= '/'; // enforce a trailing slash, regardless of slashUrls template setting
+				$url .= $this->pageNumUrlPrefix . $pageNum;
+				if($template->slashPageNum > 0) $url .= '/';
+				$url .= $this->queryString;
+			} else {
+				// query string style pagination
+				$url .= $this->queryString . (strlen($this->queryString) ? "&" : "?") . "$this->pageNumUrlPrefix=$pageNum";
+			}
+		} else {
+			$url .= $this->queryString;
+		}
+
+		return $url;
+	}
+
+	/**
+	 * Populate $config->urls->next, $config->urls->prev, and $config->pagerHeadTags
+	 *
+	 * @param string $nextURL
+	 * @param string $prevURL
+	 *
+	 */
+	protected function updateConfigVars($nextURL, $prevURL) {
+
+		/** @var Config $config */
+		$config = $this->wire('config');
+		$httpRoot = $this->wire('input')->httpHostUrl();
+		$pagerHeadTags = '';
+
+		if($nextURL) {
+			$config->urls->next = $nextURL;
+			$pagerHeadTags .= "<link rel=\"next\" href=\"$httpRoot$nextURL\" />";
+		}
+
+		if($prevURL) {
+			$config->urls->prev = $prevURL;
+			$pagerHeadTags .= "<link rel=\"prev\" href=\"$httpRoot$prevURL\" />";
+		}
+
+		$config->set('pagerHeadTags', $pagerHeadTags);
+	}
+	
+	/* 
+	 * The following methods are specific to the Module interface 
+ 	 *
+	 */
+
+	public function init() { }	
+	public function ___install() { }
+	public function ___uninstall() { }
+
+}
+

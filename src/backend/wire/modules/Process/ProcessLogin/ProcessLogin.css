@@ -1,0 +1,34 @@
+ul.Inputfields #wrap_login_name,
+ul.Inputfields #wrap_login_pass {
+	width: 190px; 
+	clear: none; 
+	float: left;
+	margin-top: 0;
+	margin-left: -1px; 
+}
+
+ul.Inputfields #login_name,
+ul.Inputfields #login_pass {
+	width: 100%; 	
+}
+
+ul.Inputfields .InputfieldSubmit {
+	clear: both; 
+}
+
+#wrap_tfa_remember {
+	border: none;
+	outline: none;
+	padding: 0;
+}
+#wrap_tfa_remember .InputfieldHeader {
+	display: none;
+}
+#wrap_tfa_remember .InputfieldContent {
+	padding: 0 0 20px 0;
+}
+
+.ProcessLogin #ProcessLoginForm.tfa {
+	width: 300px;
+}
+

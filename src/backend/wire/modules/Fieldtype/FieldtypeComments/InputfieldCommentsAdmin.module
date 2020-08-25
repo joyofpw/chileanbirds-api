@@ -1,0 +1,257 @@
+<?php namespace ProcessWire;
+
+/**
+ * ProcessWire InputfieldCommentsAdmin
+ *
+ * An Inputfield for handling administration of Comments.
+ * 
+ * ProcessWire 3.x, Copyright 2019 by Ryan Cramer
+ * https://processwire.com
+ * 
+ * @method InputfieldMarkup renderItem(Comment $comment, $n)
+ *
+ */
+
+class InputfieldCommentsAdmin extends Inputfield implements InputfieldItemList {
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => __('Comments Admin', __FILE__),
+			'version' => 104,
+			'summary' => __('Provides an administrative interface for working with comments', __FILE__),
+			'permanent' => false, 
+			'requires' => 'FieldtypeComments',
+			);
+	}
+	
+	protected $commentIDsToNumbers = array();
+
+	public function init() {
+		parent::init();
+	}
+
+	/**
+	 * @param Comment $comment
+	 * @param int $n
+	 * @return array|mixed|null|_Module|Field|Fieldtype|Module|NullPage|Page|Permission|Role|Template|WireData|WireInputData|string
+	 * 
+	 */
+	protected function ___renderItem(Comment $comment, $n) {
+
+		$statuses = array(
+			Comment::statusFeatured => array($this->_x('Featured', 'comment-status'), 'trophy'),
+			Comment::statusApproved => array($this->_x('Approved', 'comment-status'), 'check-circle'),
+			Comment::statusPending => array($this->_x('Pending', 'comment-status'), 'question-circle'), 
+			Comment::statusSpam => array($this->_x('Spam', 'comment-status'), 'warning'), 
+		);
+
+		$name = $this->name;
+		$names = array(
+			'status' => "{$this->name}_status_{$comment->id}",
+			'parent' => "{$this->name}_parent_id_{$comment->id}",
+			'cite' => "{$name}_cite_{$comment->id}",
+			'email' => "{$name}_email_{$comment->id}",
+			'website' => "{$name}_website_{$comment->id}",
+			'stars' => "{$name}_stars_{$comment->id}",
+			'text' => "{$name}_text_{$comment->id}"
+		);
+
+
+		$sanitizer = $this->wire('sanitizer');
+		$statusName = '';
+		$statusIcon = '';
+		$statusOut = "<select id='$names[status]' name='$names[status]'>";
+		
+		foreach($statuses as $status => $statusInfo) {
+			list($label, $icon) = $statusInfo;
+			if($comment->status == $status) {
+				$selected = " selected='selected'";
+				$statusName = $label;
+				$statusIcon = $icon;
+			} else {
+				$selected = '';
+			}
+			$statusOut .= "<option value='$status'$selected>$label</option>";
+		}
+		
+		$statusOut .= "<option value='delete{$comment->id}'>" . $this->_('Delete') . "</option>";
+		$statusOut .= "</select>";
+		
+		$parentOut = "<select name='$names[parent]' id='$names[parent]'><option value='0'></option>";
+		$parentID = $comment->parent_id; 
+		$_n = 0;
+		foreach($this->value as $_comment) {
+			$_n++;
+			if($_comment->id == $comment->id) continue; 
+			if($_comment->created > $comment->created) continue; 
+			$selected = $parentID == $_comment->id ? " selected='selected'" : "";
+			$parentOut .= 
+				"<option$selected value='$_comment->id'>" . 
+				sprintf($this->_('Comment #%d (%s)'), $_n, $this->wire('sanitizer')->entities($_comment->cite)) . 
+				"</option>";
+		}
+		$parentOut .= "</select>";
+		
+		$notifyOut = '';
+		if($comment->getField()->useNotify) {
+			if($comment->flags & Comment::flagNotifyAll) $notifyOut = $this->_('ALL new comments');
+				else if($comment->flags & Comment::flagNotifyReply) $notifyOut = $this->_('REPLIES only'); 
+				else $notifyOut = $this->_('OFF'); 
+		}
+
+		$headLabel = $statusName; 
+		$num = $n+1; 
+
+		$liID = "CommentsAdminItem{$comment->id}";
+		/** @var InputfieldMarkup $f */
+		$f = $this->wire('modules')->get('InputfieldMarkup');
+		$f->attr('id', $liID);
+		$f->addClass("CommentsAdminItem$statusName"); 
+		$f->icon = $statusIcon;
+
+		if($comment->status == Comment::statusSpam) {
+			$f->addClass("CommentsAdminItemSpam InputfieldIsError InputfieldStateError", 'wrapClass');
+			$f->description = $this->_("Spam is automatically deleted after the amount of time specified in the field configuration.");
+			$f->collapsed = Inputfield::collapsedYes;
+		} else if($comment->status == Comment::statusApproved) {
+			$f->collapsed = Inputfield::collapsedYes;
+			$f->addClass('InputfieldIsSuccess');
+		} else if($comment->status == Comment::statusPending) {
+			$f->addClass('InputfieldIsPrimary');
+			$f->description = $this->_("This item is awaiting approval or deletion.");
+		}
+		
+		$cite = $sanitizer->entities($comment->cite);
+		$email = $sanitizer->entities($comment->email);
+		$website = $sanitizer->entities($comment->website);
+		$stars = $sanitizer->entities($comment->stars);
+		$text = $sanitizer->entities(trim($comment->text));
+		
+		$f->label = strtoupper($headLabel) . ': ' . sprintf(
+			$this->_('Comment #%1$d Posted %2$s by %3$s'), 
+			$num, 
+			wireRelativeTimeStr($comment->created), 
+			$cite	
+		);
+		
+		if($this->hasField && $this->hasField->get('useStars')) {
+			$starsInput = 
+				"<p class='CommentsAdminItemStars'>" .
+					"<label for='$names[stars]'>" . 
+						"<span class='detail'>" . $this->_('Stars') . "</span>" . 
+					"</label>" .
+					"<input type='number' min='0' max='5' id='$names[stars]' name='$names[stars]' value='$stars' />" .
+				"</p>";
+		} else {
+			$starsInput = '';
+		}
+	
+		$f->value =
+			"<div class='ui-helper-clearfix'>" . 
+				"<p class='CommentsAdminItemStatus'>" . 
+					"<label for='$names[status]'><span class='detail'>" . $this->_('Status') . "</span></label>" . 
+					$statusOut . 
+				"</p>" .
+				"<p class='CommentsAdminItemParent'>" . 
+					"<label for='$names[parent]'><span class='detail'>" . $this->_('Reply To') . "</span></label>"  . 
+					$parentOut . 
+				"</p>" .
+			"</div><div class='ui-helper-clearfix'>" . 
+				"<p class='CommentsAdminItemCite'>" . 
+					"<label for='$names[cite]'><span class='detail'>" . $this->_('Cite') . "</span></label>" . 
+					"<input type='text' id='$names[cite]' name='$names[cite]' value='$cite' />" . 
+				"</p>" .
+				"<p class='CommentsAdminItemEmail'>" . 
+					"<label for='$names[email]'><span class='detail'>" . $this->_('E-Mail') . "</span></label>" . 
+					"<input type='text' id='$names[email]' name='$names[email]' value='$email' />" . 
+				"</p>" .
+				"<p class='CommentsAdminItemWebsite'>" . 
+					"<label for='$names[website]'><span class='detail'>" . $this->_('Website') . "</span></label>" . 
+					"<input type='text' id='$names[website]' name='$names[website]' value='$website' />" . 
+				"</p>" .
+				$starsInput . 
+			"</div>" . 
+			"<p class='CommentsAdminItemText'>" . 
+				"<label for='$names[text]'><span class='detail'>" . $this->_('Text') . "</span></label>" . 
+				"<textarea id='$names[text]' name='$names[text]' rows='5'>$text</textarea>" . 
+			"</p>" .
+			($notifyOut ? "<p class='CommentsAdminItemNotify notes'>" . $this->_('Email notifications:') . " $notifyOut</p>" : "") .
+			"<input class='CommentsAdminItemSort' type='hidden' name='sort_{$this->name}_{$comment->id}' value='$n' />" . 
+			"";
+
+		return $f; 
+	}
+
+	public function ___render() {
+
+		if(!count($this->value)) return "<p>" . $this->_('There are currently no items to display.') . "</p>";
+
+		$n = 0; 
+		foreach($this->value as $comment) {
+			$this->commentIDsToNumbers[$comment->id] = ++$n;
+		}
+		
+		$fieldset = new InputfieldWrapper(); // wired
+		$this->wire($fieldset);
+		
+		$n = 0;
+		foreach($this->value as $comment) {
+			$f = $this->renderItem($comment, $n++);
+			$f->addClass($this->wrapClass);
+			$fieldset->add($f);
+		}
+		
+		$out = $fieldset->render();
+		//$this->addClass('InputfieldFieldset', 'wrapClass');
+
+		return $out; 
+	}
+
+	public function ___processInput(WireInputData $input) {
+
+		$n = 1; 	
+		$names = array(
+			'cite', 
+			'email',
+			'website',
+			'status',
+			'delete',
+			'parent_id', 
+			'text',
+			'sort',
+		);
+		
+		if($this->hasField && $this->hasField->get('useStars')) $names[] = 'stars';
+
+		foreach($this->value as $comment) {
+			/** @var Comment $comment */
+
+			$data = array();
+			foreach($names as $name) {
+				$inputName = $this->name . "_" . $name . "_" . $comment->id; 
+				$value = isset($input[$inputName]) ? $input[$inputName] : '';
+				$data[$name] = $value; 
+			}
+
+			if($data['status'] && $data['status'] == "delete{$comment->id}") {
+				$this->value->remove($comment); 
+				$this->message(sprintf($this->_('Removed comment #%d'), $n)); 
+				$this->value->trackChange('remove'); 
+				continue;
+			} 
+
+			foreach($data as $key => $value) {
+				if($key == 'text') $value = $comment->cleanCommentString($value); 
+				if(($value || $key == 'status') && $comment->$key != $value) {
+					$comment->$key = $value; 
+					$this->message(sprintf($this->_('Updated %s for comment #%d'), $key, $n)); 
+					$this->value->trackChange('update'); 
+				}	
+			}
+			$n++; 
+		}
+
+		return $this; 
+	}
+
+}

@@ -1,0 +1,675 @@
+<?php namespace ProcessWire;
+
+/**
+ * ProcessWire Page Type Process
+ *
+ * Manage, edit add pages of a specific type in ProcessWire
+ * 
+ * For more details about how Process modules work, please see: 
+ * /wire/core/Process.php 
+ * 
+ * ProcessWire 3.x, Copyright 2018 by Ryan Cramer
+ * https://processwire.com
+ * 
+ * @property array $showFields Names of fields to show in the main list table  (default=['name'])
+ * @property string $addLabel Translated "Add New" label
+ * @property string $jsonListLabel What to use for 'label' property in JSON nav data (default='name')
+ * 
+ * @method string executeList()
+ *
+ */
+
+class ProcessPageType extends Process implements ConfigurableModule, WirePageEditor {
+
+	static public function getModuleInfo() {
+		return array(
+			'title' => __('Page Type', __FILE__), // getModuleInfo title
+			'version' => 101, 
+			'summary' => __('List, Edit and Add pages of a specific type', __FILE__), // getModuleInfo summary
+			'permanent' => true, 
+			'useNavJSON' => true, 
+			'addFlag' => Modules::flagsNoUserConfig
+			); 
+	}
+
+	/**
+	 * @var PagesType
+	 * 
+	 */
+	protected $pages;
+
+	/**
+	 * Predefined template for page type represented by this Process
+	 * 
+	 * @var null|Template
+	 * 
+	 */
+	protected $template = null;
+
+	/**
+	 * ProcessPageEdit or ProcessPageAdd
+	 * 
+	 * @var WirePageEditor|ProcessPageEdit|WirePageEditor|null
+	 * 
+	 */
+	protected $editor = null;
+
+	/**
+	 * Instance of ProcessPageLister
+	 * 
+	 * @var null|ProcessPageLister or ProcessPageListerPro
+	 * 
+	 */
+	protected $lister = null;
+
+	/**
+	 * Construct
+	 * 
+	 */
+	public function __construct() {
+		$this->set('showFields', array('name')); 
+		$this->set('addLabel', $this->_('Add New')); 
+		$this->set('jsonListLabel', 'name'); // what to use for 'label' property in JSON nav data
+		parent::__construct();
+	}
+
+	/**
+	 * Init
+	 * 
+	 */
+	public function init() {
+		
+		$this->config->scripts->add($this->config->urls('ProcessPageType') . 'ProcessPageType.js'); 
+		$this->config->styles->add($this->config->urls('ProcessPageType') . 'ProcessPageType.css');
+
+		$this->pages = $this->wire($this->page->name); 
+		
+		if(is_null($this->pages) || !$this->pages instanceof PagesType) {
+			// $this->error("Unable to find API variable named '{$this->page->name}' (of type: PagesType)", Notice::debug); 
+			$this->pages = $this->wire('pages'); 
+		}
+	
+		if($this->pages instanceof PagesType) {
+			$this->template = $this->pages->getTemplate();
+		}
+		
+		$this->initLister();
+
+		parent::init();
+	}
+
+	/**
+	 * Return true or false as to whether use of Lister should be attempted (template method)
+	 * 
+	 * @return bool
+	 * 
+	 */
+	protected function useLister() {
+		return false;
+	}
+
+
+	/**
+	 * Initialize the $this->lister variable, if Lister is in use
+	 * 
+	 */
+	protected function initLister() {
+		
+		if(!$this->useLister()) return;
+		
+		// init lister, but only if executing an action that will use it
+		$segment = $this->wire('input')->urlSegment1;
+		$user = $this->wire('user');
+		$listerSegments = array(
+			'list',
+			'config',
+			'viewport',
+			'reset',
+			'actions',
+			'save',
+			'edit-bookmark',
+		);
+		if(empty($segment) || in_array($segment, $listerSegments) && $user->hasPermission('page-lister')) {
+			if($this->wire('modules')->isInstalled('ProcessPageListerPro')) {
+				$this->lister = $this->wire('modules')->get('ProcessPageListerPro');
+			}
+			if((!$this->lister || !$this->lister->isValid()) && $this->wire('modules')->isInstalled('ProcessPageLister')) {
+				$this->lister = $this->wire('modules')->get('ProcessPageLister');
+			}
+		}
+	}
+	
+	// Lister-specific methods, all mapped directly to Lister or ListerPro
+	public function ___executeConfig() { return $this->getLister()->executeConfig(); }
+	public function ___executeViewport() { return $this->getLister()->executeViewport(); }
+	public function ___executeReset() { return $this->getLister()->executeReset(); }
+	public function ___executeActions() { return $this->getLister()->executeActions(); }
+	public function ___executeSave() { return $this->getLister()->executeSave(); }
+	public function ___executeEditBookmark() { return $this->getLister()->executeEditBookmark(); }
+
+	/**
+	 * Main execution method, delegated to listing items in this page type
+	 * 
+	 * @return string
+	 * 
+	 */
+	public function ___execute() {
+		return $this->executeList();
+	}
+
+	/**
+	 * List items in this page type
+	 * 
+	 * @return string
+	 * 
+	 */
+	public function ___executeList() {
+		$templateID = (int) $this->wire('input')->get('templates_id');
+		if(!$templateID) $templateID = (int) $this->wire('session')->get($this->className() . 'TemplatesID');
+		$selector = $templateID ? "templates_id=$templateID, " : "";
+		return $this->renderList($selector . "limit=100, status<" . Page::statusMax);
+	}
+
+	/**
+	 * Output JSON list of navigation items for this (intended to for ajax use)
+	 * 
+	 * @param array $options 
+	 * @return string|array
+	 *
+	 */
+	public function ___executeNavJSON(array $options = array()) {
+	
+		if(!isset($options['items'])) {
+			$limit = (int) $this->wire('input')->get('limit');
+			if(!$limit || $limit > 100) $limit = 100;
+			$start = (int) $this->wire('input')->get('start');
+			$pages = $this->pages->find("start=$start, limit=$limit");
+			foreach($pages as $page) {
+				if(!$page->editable()) $pages->remove($page);
+			}
+			$options['items'] = $pages;
+			$parent = $this->pages->getParent();
+			if($parent && $parent->id && $parent->addable()) {
+				$options['add'] = 'add/';
+			} else {
+				$options['add'] = false;
+			}
+			$options['edit'] = "edit/?id={id}"; 
+		}
+		if(!isset($options['itemLabel'])) $options['itemLabel'] = $this->jsonListLabel;
+		
+		return parent::___executeNavJSON($options); 
+	}
+
+	/**
+	 * Get an instanceof ProcessPageLister or null if not applicable
+	 * 
+	 * @param string $selector
+	 * @return ProcessPageLister|null 
+	 * 
+	 */
+	public function getLister($selector = '') {
+
+		$lister = $this->lister;
+		if(!$lister) return null;
+
+		$settings = $this->getListerSettings($lister, $selector);
+
+		foreach($settings as $name => $value) {
+			$lister->$name = $value;
+		}
+		
+		if($lister->className() == 'ProcessPageListerPro') {
+			$data = $this->wire('modules')->getModuleConfigData('ProcessPageListerPro');
+			if(isset($data['settings'][$this->page->name])) {
+				foreach($data['settings'][$this->page->name] as $key => $value) {
+					$lister->$key = $value;
+				}
+			}
+		}
+		
+		return $lister;
+	}
+
+	/**
+	 * Return an array of Lister settings, ready to be populated to Lister
+	 * 
+	 * @param ProcessPageLister $lister
+	 * @param string $selector
+	 * @return array
+	 * 
+	 */
+	protected function getListerSettings(ProcessPageLister $lister, $selector) {
+		
+		$templates = $this->pages->getTemplates();
+		$parents = $this->pages->getParents();
+		$_selector = "template=" . implode('|', array_keys($templates)) . ", ";
+		if(count($parents)) $_selector .= "parent=$parents, ";
+		$_selector .= "include=all, $selector";
+		$selector = rtrim($_selector, ", ");
+		
+		$settings = array(
+			'initSelector' => $selector,
+			'columns' => $this->showFields,
+			'defaultSelector' => "name%=",
+			'defaultSort' => 'name',
+			'parent' => $this->page,
+			'editURL' => './edit/',
+			'addURL' => './add/',
+			'delimiters' => array(),
+			'allowSystem' => true,
+			'allowIncludeAll' => true,
+			'allowBookmarks' => false, 
+			'showIncludeWarnings' => false,
+			'toggles' => array('collapseFilters'),
+		);
+		
+		if($lister->className() == 'ProcessPageLister') $settings['editMode'] = ProcessPageLister::windowModeDirect;
+		
+		if(count($templates) == 1) $settings['template'] = reset($templates);
+		
+		return $settings;
+	}
+
+	/**
+	 * Get the page editor
+	 * 
+	 * @param string $moduleName One of 'ProcessPageEdit' or 'ProcessPageAdd' (or other that extends)
+	 * @return ProcessPageEdit|ProcessPageAdd|WirePageEditor
+	 * @throws WireException If requested editor moduleName not found
+	 * 
+	 */
+	protected function getEditor($moduleName) {
+		if($this->editor && $this->editor->className() == $moduleName) {
+			return $this->editor;
+		}
+		$this->editor = $this->modules->get($moduleName);
+		if(!$this->editor) {
+			throw new WireException("Unable to load editor: $moduleName"); 				
+		}
+		if(wireInstanceOf($this->editor, array('ProcessPageEdit', 'ProcessPageAdd'))) {
+			$this->editor->setEditor($this); // set us as the parent editor
+			if($this->pages instanceof PagesType) {
+				$templates = $this->pages->getTemplates();
+				$parents = $this->pages->getParentIDs();
+				$this->editor->setPredefinedTemplates($templates);
+				$this->editor->setPredefinedParents($this->wire('pages')->getById($parents));
+			}
+		}
+		return $this->editor;
+	}
+
+	/**
+	 * Edit item of this page type
+	 * 
+	 * @return string
+	 * 
+	 */
+	public function ___executeEdit() {
+	
+		$pageTitle = $this->page->get('title|name');
+		$this->breadcrumb('../', $pageTitle); 
+		$editor = $this->getEditor('ProcessPageEdit'); 
+		$urlSegment = ucfirst($this->wire('input')->urlSegment2);
+		$editPage = $this->getPage(); 
+		$this->browserTitle("$pageTitle > " . $editPage->name); 
+		
+		if($urlSegment && (method_exists($editor, "___execute$urlSegment") || method_exists($editor, "execute$urlSegment"))) {
+			// i.e. executeTemplate() and executeSaveTemplate()
+			return $editor->{"execute$urlSegment"}(); 
+		} else {
+			// regular edit
+			return $editor->execute();
+		}
+	}
+
+	/**
+	 * Add item of this page type
+	 * 
+	 * @return string
+	 * 
+	 */
+	public function ___executeAdd() {
+		$pageTitle = $this->page->get('title|name');
+		$this->breadcrumb('../', $pageTitle); 
+		/** @var ProcessPageAdd $editor */
+		$editor = $this->getEditor("ProcessPageAdd"); 
+		$editor->template = $this->template;
+		try {
+			$out = $editor->execute();
+		} catch(\Exception $e) {
+			$out = '';
+			$this->error($e->getMessage());
+		}
+		$this->browserTitle("$pageTitle > $this->addLabel");
+		return $out; 
+	}
+
+	/**
+	 * Execute the "change template" action delegated to ProcessPageEdit
+	 * 
+	 * @return string
+	 * 
+	 */
+	public function ___executeTemplate() {
+		$editor = $this->getEditor('ProcessPageEdit');
+		return $editor->executeTemplate();
+	}
+
+	/**
+	 * Execute saving changes of the "change template" action delegated to ProcessPageEdit
+	 * 
+	 * @return string
+	 * 
+	 */
+	public function ___executeSaveTemplate() {
+		$editor = $this->getEditor('ProcessPageEdit');
+		return $editor->executeSaveTemplate();
+	}
+
+	/**
+	 * Render Lister output of pages
+	 * 
+	 * This is used as an alternative to the built-in item list when Lister/ListerPro is available.
+	 * 
+	 * @param string $selector Selector string for pages
+	 * @param array $pagerOptions Not currently used by Lister
+	 * @return string
+	 * @throws WireException
+	 * 
+	 */
+	protected function renderLister($selector = '', $pagerOptions = array()) {
+		if($pagerOptions) {} // ignore
+		$lister = $this->getLister($selector);
+		if(!$lister) throw new WireException("Lister not available");
+		return $lister->execute();
+	}
+
+	/**
+	 * Render page list
+	 * 
+	 * When Lister/ListerPro is available, this will delegate to the renderLister() method instead. 
+	 * When not available, it will render the list itself. 
+	 * 
+	 * @param string $selector Selector string for pages
+	 * @param array $pagerOptions
+	 *
+	 * @return string
+	 * 
+	 */
+	protected function renderList($selector = '', $pagerOptions = array()) {
+		
+		if($this->lister && $this->useLister()) {
+			// delegate to Lister/ListerPro when available
+			return $this->renderLister($selector, $pagerOptions);
+		}
+		
+		$out = '';
+
+		if(!$this->pages instanceof PagesType || count($this->pages->getTemplates()) != 1) {
+			$form = $this->getTemplateFilterForm();		
+			$out = $form->render();
+		}
+
+		/** @var MarkupAdminDataTable $table */
+		$table = $this->modules->get("MarkupAdminDataTable"); 
+		$table->setEncodeEntities(false); 
+		$fieldNames = $this->showFields; 
+		$fieldLabels = $fieldNames; 
+
+		foreach($fieldLabels as $key => $name) {
+			if($name == 'name') {
+				$fieldLabels[$key] = $this->_('Name'); // Label for 'name' field
+				continue; 
+			}
+			$field = $this->wire('fields')->get($name); 	
+			if($field) { 
+				$label = $field->getLabel();
+				$fieldLabels[$key] = htmlentities($label, ENT_QUOTES, "UTF-8");
+			}
+		}
+
+		$table->headerRow($fieldLabels); 
+		$pages = $this->pages->find($selector); 
+		$numRows = 0;
+
+		foreach($pages as $page) {
+			if(!$page->editable()) continue;
+			$n = 0; 
+			$row = array();
+			foreach($fieldNames as $name) {
+				if(!$n) {
+					$value = htmlentities($page->getUnformatted($name), ENT_QUOTES, 'UTF-8') . ' ';
+					$status = '';
+					if($page->hasStatus(Page::statusUnpublished)) $status .= 'PageListStatusUnpublished ';
+					if($page->hasStatus(Page::statusHidden)) $status .= 'PageListStatusHidden ';
+					if($status) $value = "<span class='" . trim($status) . "'>$value</span>";
+					$row[$value] = "edit/?id={$page->id}";
+				} else {
+					$row[] = $this->renderListFieldValue($name, $page->getUnformatted($name)); 
+				}
+				$n++;
+			}
+			$table->row($row); 
+			$numRows++;
+		}
+
+		if($this->wire('page')->addable()) $table->action(array($this->addLabel => 'add/')); 
+
+		if($pages->getTotal() > count($pages)) {
+			/** @var MarkupPagerNav $pager */
+			$pager = $this->modules->get("MarkupPagerNav"); 
+			$out .= $pager->render($pages, $pagerOptions);
+		}
+
+		if(!$numRows) $out .= $this->renderEmptyList($pages);
+
+		$out .= $table->render();
+
+		return $out; 
+	}
+
+	/**
+	 * Render an empty page list
+	 * 
+	 * @param PageArray $pages
+	 * @return string
+	 * 
+	 */
+	protected function renderEmptyList(PageArray $pages) {
+		if($pages) {} // ignore
+		$out = "<p>" . $this->_('No items to display yet.') . "</p>";
+		return $out; 
+	}
+
+	/**
+	 * Return a value for output in list table
+	 * 
+	 * Only used if Lister/ListerPro is not available. 
+	 * 
+	 * @param string $name Name of property
+	 * @param mixed $value Value of property
+	 * @return string
+	 * 
+	 */
+	protected function renderListFieldValue($name, $value) {
+		if($name) {} // ignore
+		if(is_string($value) || is_int($value)) return htmlspecialchars($value, ENT_QUOTES, 'UTF-8'); 
+		if(is_array($value)) return htmlspecialchars(print_r($value, true), ENT_QUOTES, 'UTF-8'); 
+		if(is_object($value)) {
+			if($value instanceof PageArray) {
+				$item = $value->first();
+				if($item && $item->title) {
+					$out = $value->implode("\n", '{title} (~{name}~)');
+					$out = nl2br($this->wire('sanitizer')->entities1($out));
+					$out = str_replace(array('(~', '~)'), array('<span class="detail">(', ')</span>'), $out);
+				} else {
+					$out = $value->implode("\n", 'name'); 
+				}
+				return $out;
+			} else if($value instanceof WireArray) {
+				$out = '';	
+				foreach($value as $k => $v) {
+					$out .= $v->name . ", ";
+				}
+				return nl2br(rtrim($out, ", ")); 
+
+			} else if($value instanceof Wire) {
+				if($value->name) return $value->name; 
+				return (string) $value; 
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * Get the filter-by-template form
+	 * 
+	 * Only used if Lister/ListerPro is not available. 
+	 * 
+	 * @return InputfieldForm
+	 * 
+	 */
+	protected function getTemplateFilterForm() {
+
+		/** @var InputfieldForm $form */
+		$form = $this->modules->get("InputfieldForm"); 
+		$form->attr('id', 'template_filter_form'); 
+		$form->attr('method', 'get'); 
+		$form->attr('action', './list'); 
+
+		/** @var InputfieldSelect $field */
+		$field = $this->modules->get("InputfieldSelect"); 
+		$field->attr('id+name', 'templates_id'); 
+		$field->label = $this->_('Filter by Template'); 
+		$field->addOption('', $this->_('Show All')); 
+		$field->icon = 'filter';
+		$field->collapsed = Inputfield::collapsedBlank;
+		
+		$templates = $this->pages instanceof PagesType ? $this->pages->getTemplates() : array();
+		if(!count($templates)) $templates = $this->wire('templates');
+
+		foreach($templates as $template) {
+			$field->addOption($template->id, $template->name); 
+		}
+
+		$filterName = $this->className . 'TemplatesID';
+		if(isset($_GET['templates_id'])) {
+			$this->session->set($filterName, (int) $this->input->get('templates_id')); 
+		}
+
+		$filterValue = (int) $this->session->$filterName; 
+		if($filterValue) $this->template = $this->templates->get($filterValue); 
+
+		$field->attr('value', $filterValue); 
+		$form->append($field); 
+
+		return $form;
+	}
+
+	/**
+	 * Module config
+	 * 
+	 * @param array $data
+	 * @return InputfieldWrapper
+	 * 
+	 */
+	public function getModuleConfigInputfields(array $data) {
+
+		$showFields = isset($data['showFields']) ? $data['showFields'] : array();
+		$fields = array('name'); 
+		foreach($this->wire('fields') as $field) $fields[] = $field->name; 
+
+		/** @var InputfieldWrapper $inputfields */
+		$inputfields = $this->wire(new InputfieldWrapper());
+		/** @var InputfieldAsmSelect $f */
+		$f = $this->wire('modules')->get('InputfieldAsmSelect'); 
+		$f->label = $this->_("What fields should be displayed in the page listing?");
+		$f->attr('id+name', 'showFields'); 
+		foreach($fields as $name) $f->addOption($name); 
+		$f->attr('value', $showFields); 
+		$inputfields->add($f);
+
+		return $inputfields;
+	}
+
+	/**
+	 * Get page being edited (for WirePageEditor interface)
+	 * 
+	 * @return NullPage|Page
+	 * 
+	 */
+	public function getPage() {
+		if($this->editor) return $this->editor->getPage();
+		return $this->wire('pages')->newNullPage();
+	}
+	
+	/**
+	 * Search for items containing $text and return an array representation of them
+	 *
+	 * Implementation for SearchableModule interface
+	 *
+	 * @param string $text Text to search for
+	 * @param array $options Options to modify behavior:
+	 *  - `edit` (bool): True if any 'url' returned should be to edit items rather than view them
+	 *  - `multilang` (bool): If true, search all languages rather than just current (default=true).
+	 *  - `start` (int): Start index (0-based), if pagination active (default=0).
+	 *  - `limit` (int): Limit to this many items, if pagination active (default=0, disabled).
+	 * @return array
+	 *
+	 */
+	public function search($text, array $options = array()) {
+
+		$page = $this->getProcessPage();
+		$this->pages = $this->wire($page->name);
+		$templates = $this->pages->getTemplates();
+		
+		/** @var Languages $languages */
+		$page = $this->getProcessPage();
+
+		$result = array(
+			'title' => $page->id ? $page->title : $this->className(),
+			'items' => array(),
+		);
+	
+		if(!empty($options['help'])) {
+			$result['properties'] = array('name');
+			foreach($templates as $template) {
+				foreach($template->fieldgroup as $field) {
+					if($field->type instanceof FieldtypePassword) continue;
+					if($field->type instanceof FieldtypeFieldsetOpen) continue;
+					$result['properties'][] = $field->name;
+				}
+			}
+			return $result;
+		}
+		
+		$text = $this->wire('sanitizer')->selectorValue($text);
+		$property = empty($options['property']) ? 'name' : $options['property'];
+		$operator = isset($options['operator']) ? $options['operator'] : '%=';
+		$selector = "$property$operator$text, ";
+		if(isset($options['start'])) $selector .= "start=$options[start], ";
+		if(!empty($options['limit'])) $selector .= "limit=$options[limit], ";
+		$items = $this->pages->find(trim($selector, ", ")); 
+	
+		foreach($items as $item) {
+			$result['items'][] = $this->getSearchItemInfo($item, $options); 
+		}
+
+		return $result;
+	}
+	
+	protected function getSearchItemInfo(Page $item, array $options) {
+		return array(
+			'id' => $item->id,
+			'name' => $item->name,
+			'title' => $item->get('title|name'),
+			'subtitle' => $item->template->name,
+			'summary' => '',
+			'icon' => $item->getIcon(),
+			'url' => empty($options['edit']) ? $item->url() : $item->editUrl()
+		);
+	}
+	
+}
+
