@@ -3,9 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
-    "@testing-library/jest-dom": "^4.2.4",
-    "@testing-library/react": "^9.3.2",
-    "@testing-library/user-event": "^7.1.2",
     "axios": "^0.18.1",
     "axios-cache-adapter": "^2.5.0",
     "bulma": "^0.9.0",
@@ -17,6 +14,13 @@
     "react-router-dom": "^5.2.0",
     "react-scripts": "3.4.3",
     "react-spinkit": "^3.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^4.2.4",
+    "@testing-library/react": "^9.3.2",
+    "@testing-library/user-event": "^7.1.2",
+    "enzyme": "^3.11.0",
+    "enzyme-adapter-react-16": "^1.15.3"
   },
   "scripts": {
     "start": "react-scripts start",
