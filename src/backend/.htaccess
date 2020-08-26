@@ -100,6 +100,9 @@ ErrorDocument 404 /index.php
 
   # Optionally (O) prevent mime-based attacks via content sniffing (IE+Chrome)
   # Header set X-Content-Type-Options "nosniff" 
+
+  # Allow API to be used from localhost
+  Header set Access-Control-Allow-Origin *
 </IfModule>
 
 

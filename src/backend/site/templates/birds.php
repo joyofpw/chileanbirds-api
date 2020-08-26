@@ -8,5 +8,4 @@ foreach($birds as $bird) {
   $out[] = $item->data();
 }
 
-header("Content-Type: application/json");
 echo json_encode($out);
