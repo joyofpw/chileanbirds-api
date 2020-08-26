@@ -3,4 +3,7 @@
 wireIncludeFile("birds/BirdView.php");
 wireIncludeFile("birds/BirdListView.php");
 
-header('Access-Control-Allow-Origin: *');
+header("Content-Type: application/json");
+
+// Set in root .htaccess. Uncomment if needed
+// header('Access-Control-Allow-Origin: *');
