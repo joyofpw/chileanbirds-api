@@ -3,3 +3,6 @@ b build:
 
 s start:
 	npm run start
+
+t test:
+	npm run test
