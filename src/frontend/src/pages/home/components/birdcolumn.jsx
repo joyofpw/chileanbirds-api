@@ -17,6 +17,7 @@ export default (item, index, { openModal, setOpenModal, birdModal }) => {
                 alt={item.name.latin}
                 title={item.name.spanish}
                 className="modal-button"
+                loading="lazy"
               />
             </figure>
           </div>
