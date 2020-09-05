@@ -39,6 +39,7 @@ export default ({ bird, setOpenModal }) => (
                   alt={bird.map.title}
                   title={bird.map.title}
                   width="100%"
+                  loading="lazy"
                 />
               </figure>
 
