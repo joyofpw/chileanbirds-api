@@ -1,2 +1,5 @@
 assets/sessions/*
 !assets/sessions/.htaccess
+assets/cache/FileCompiler/*
+assets/cache/WireTempDir/*
+!assets/cache/.htaccess

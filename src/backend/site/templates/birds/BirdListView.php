@@ -21,7 +21,7 @@ class BirdListView {
         "latin" => $bird->getLanguageValue($latin, "title")
       ],
       "images" => (object)[
-        "main" => $bird->image->httpUrl()
+        "main" => $bird->image->width(200)->httpUrl()
       ],
       "_links" => (object) [
         "self" => $bird->httpUrl(),
